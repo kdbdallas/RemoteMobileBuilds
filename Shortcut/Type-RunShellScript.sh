@@ -19,23 +19,42 @@ features=""
 unitTests=$(osascript -e 'button returned of (display dialog "Running Unit Tests" buttons {"Yes", "No"} default button "No")') || exit 0
 if [[ "$unitTests" == "Yes" ]]; then
   lane="Unit Tests"
-  devices=""
   if [[ "$platform" == "iOS" ]]; then
     devices=$(osascript -e 'choose from list {"Not Specified", "Latest", "All"} with prompt "Devices to Run" default items {"Not Specified"}') || exit 0
     [[ "$devices" == "false" ]] && exit 0
     [[ "$devices" == "Not Specified" ]] && devices=""
+    branch=$(osascript -e 'text returned of (display dialog "Branch" default answer "" buttons {"Cancel", "Continue"} default button "Continue")') || exit 0
+    [[ "$branch" == "Cancel" ]] && exit 0
+    buildCommand=(
+      "$buildScript"
+      "$RMB_IOS_HOST"
+      --unitTests
+      "${typeArguments[@]}"
+      --repo "$RMB_IOS_REPO"
+      --branch "$branch"
+    )
+    [[ -n "$devices" ]] && buildCommand+=(--devices "$devices")
+  else
+    shortCode=$(osascript - "${RMB_ANDROID_SHORTCODE_DEFAULT:-}" <<'APPLESCRIPT'
+on run argv
+  text returned of (display dialog "Client Short Code" default answer (item 1 of argv) buttons {"Cancel", "Continue"} default button "Continue")
+end run
+APPLESCRIPT
+) || exit 0
+    [[ "$shortCode" == "Cancel" ]] && exit 0
+    branch=$(osascript -e 'text returned of (display dialog "Branch" default answer "" buttons {"Cancel", "Continue"} default button "Continue")') || exit 0
+    [[ "$branch" == "Cancel" ]] && exit 0
+    buildCommand=(
+      "$buildScript"
+      "$RMB_ANDROID_HOST"
+      --unitTests
+      --platform android
+      "${typeArguments[@]}"
+      --repo "$RMB_ANDROID_REPO"
+      --branch "$branch"
+      --shortCode "$shortCode"
+    )
   fi
-  branch=$(osascript -e 'text returned of (display dialog "Branch" default answer "" buttons {"Cancel", "Continue"} default button "Continue")') || exit 0
-  [[ "$branch" == "Cancel" ]] && exit 0
-  buildCommand=(
-    "$buildScript"
-    "$RMB_IOS_HOST"
-    --unitTests
-    "${typeArguments[@]}"
-    --repo "$RMB_IOS_REPO"
-    --branch "$branch"
-  )
-  [[ -n "$devices" ]] && buildCommand+=(--devices "$devices")
 else
 features=""
 if [[ "$platform" == "iOS" ]]; then
@@ -126,8 +145,13 @@ APPLESCRIPT
 fi
 
 label="$platform"
-[[ "$platform" == "iOS" ]] && label="Lane: $lane"
-[[ "$platform" == "Android" ]] && label="Build Type: $buildType"
+if [[ "$unitTests" == "Yes" ]]; then
+  label="Lane: Unit Tests"
+elif [[ "$platform" == "iOS" ]]; then
+  label="Lane: $lane"
+else
+  label="Build Type: $buildType"
+fi
 debug=$(printf '%s\nBranch: %s\n\nLast 12 lines of output:\n%s\n' "$label" "$branch" "$(printf '%s\n' "$output" | tail -n 12)")
 osascript - "$debug" <<'APPLESCRIPT'
 on run argv

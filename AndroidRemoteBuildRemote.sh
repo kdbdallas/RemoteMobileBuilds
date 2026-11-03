@@ -20,7 +20,7 @@ failure() {
 }
 
 # XcodeRemoteBuild.sh exports these from config.sh ahead of this script.
-for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR; do
+for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_ANDROID_PROJECT_DIR RMB_ANDROID_BROWSERSTACK_FLAVOR; do
   [[ -n "${!config_name:-}" ]] || failure "$config_name is not set; run this through XcodeRemoteBuild.sh with config.sh filled in"
 done
 
@@ -74,6 +74,21 @@ configure_java() {
   return 1
 }
 
+configure_android_sdk() {
+  local candidate
+
+  # local.properties is ignored and may be removed by the cleanup trap. Set
+  # the SDK path explicitly so both builds and tests work in an SSH session.
+  for candidate in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" "$HOME/Library/Android/sdk"; do
+    [[ -n "$candidate" && -d "$candidate/platforms" ]] || continue
+    export ANDROID_HOME="$candidate"
+    export ANDROID_SDK_ROOT="$candidate"
+    export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+    return 0
+  done
+  return 1
+}
+
 repo=""
 account_type=""
 branch=""
@@ -112,7 +127,7 @@ is_path_segment "$repo" || failure "--repo must be a single directory name"
 repo_path="$HOME/Code"
 [[ -z "$account_type" ]] || repo_path="$repo_path/$account_type"
 repo_path="$repo_path/$repo"
-project_path="$repo_path/ShowCase"
+project_path="$repo_path/$RMB_ANDROID_PROJECT_DIR"
 [[ -d "$repo_path" ]] || failure "Could not find repository: $repo_path"
 [[ -d "$project_path" ]] || failure "Could not find Android project: $project_path"
 
@@ -141,9 +156,11 @@ cd "$project_path" || failure "Could not enter Android project: $project_path"
 [[ -x ./gradlew ]] || failure "Could not find executable Gradle wrapper: $project_path/gradlew"
 configure_java || failure "Could not find a Java runtime on the remote Mac"
 printf '=== Using Java: %s ===\n' "$JAVA_HOME"
+configure_android_sdk || failure "Could not find the Android SDK on the remote Mac"
+printf '=== Using Android SDK: %s ===\n' "$ANDROID_HOME"
 
 if [[ "$build_type" == "BrowserStack" ]]; then
-  gradle_command=( ./gradlew assembleCONTAINERDebug -Pbrowserstack=true )
+  gradle_command=( ./gradlew "assemble${RMB_ANDROID_BROWSERSTACK_FLAVOR}Debug" -Pbrowserstack=true )
   artifact_extension="apk"
 else
   artifact_extension="apk"

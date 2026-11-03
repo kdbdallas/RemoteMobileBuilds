@@ -82,7 +82,7 @@ Android release bundle:
 ```bash
 ./XcodeRemoteBuild.sh android-build-mac --platform android --type work \
   --repo android-app --branch develop \
-  --buildType Release --buildPackage Bundle --shortCode CONTAINER
+  --buildType Release --buildPackage Bundle --shortCode MyFlavor
 ```
 
 ## Platform details
@@ -94,7 +94,7 @@ Android release bundle:
 - Loads Fastlane credentials and settings by calling the zsh function named in `RMB_FASTLANE_SELECTOR` from the remote `~/.zshrc`. The runner imports only the variables it needs and doesn't print them.
 - Runs `bundle install` only when `bundle check` fails.
 - Disables Fastlane's `terminal-notifier` desktop notification for the run. Its bundled binary is Intel-only and fails on Apple Silicon.
-- For the `createAppForBrowserStack` lane, renames the IPA in `Conference_ipa/` to `<ticket>-<shortCode>.ipa` and uploads it to BrowserStack App Live.
+- For the `createAppForBrowserStack` lane, renames the IPA in `<repo>/$RMB_IOS_IPA_DIR/` to `<ticket>-<shortCode>.ipa` and uploads it to BrowserStack App Live.
 
 ### iOS unit tests (`IOSUnitTestRemote.sh`)
 
@@ -105,9 +105,9 @@ Android release bundle:
 
 ### Android builds (`AndroidRemoteBuildRemote.sh`)
 
-- Builds the Gradle project in `<repo>/ShowCase`.
+- Builds the Gradle project in `<repo>/$RMB_ANDROID_PROJECT_DIR`.
 - Selects Java 17 or 21. It tries `JAVA_HOME`, then `/usr/libexec/java_home`, then the JBR bundled with Android Studio, then Homebrew, jenv, and SDKMAN installs.
-- Runs `assemble<shortCode><buildType>` for APKs or `bundle<shortCode><buildType>` for AABs. `BrowserStack` builds run `assembleCONTAINERDebug -Pbrowserstack=true`.
+- Runs `assemble<shortCode><buildType>` for APKs or `bundle<shortCode><buildType>` for AABs. `BrowserStack` builds run `assemble<RMB_ANDROID_BROWSERSTACK_FLAVOR>Debug -Pbrowserstack=true`.
 - Picks the newest matching artifact under `app/build/outputs` and renames it to `<ticket>-<shortCode>.<apk|aab>`.
 - Uploads `BrowserStack` builds to BrowserStack. It copies other builds to the build folder.
 
@@ -131,12 +131,15 @@ Then edit the values:
 | `RMB_BUILDS_DIR` | Remote runners | Absolute folder on that host where builds and reports are saved. |
 | `RMB_FASTLANE_SELECTOR` | iOS runners | zsh function in the build Mac's `~/.zshrc` that exports the Fastlane environment. It is called as `<function> --version <old\|new> --xcode /Applications/Xcode.app --gdriveemail <email>`. |
 | `RMB_GDRIVE_EMAIL` | iOS runners | Google Drive account passed to that function. |
+| `RMB_IOS_IPA_DIR` | iOS build runner | Folder inside the iOS repository where the BrowserStack lane writes its IPA. |
+| `RMB_ANDROID_PROJECT_DIR` | Android runners | Folder inside the Android repository that contains the Gradle project. |
+| `RMB_ANDROID_BROWSERSTACK_FLAVOR` | Android build runner | Product flavor built by BrowserStack builds (`assemble<flavor>Debug`). |
 | `RMB_IOS_HOST`, `RMB_ANDROID_HOST` | Shortcut | SSH hosts that run iOS and Android jobs. |
 | `RMB_REPO_TYPE` | Shortcut | Subdirectory under `~/Code` on the build Macs. Leave it empty if there is none. |
 | `RMB_IOS_REPO`, `RMB_ANDROID_REPO` | Shortcut | Repository directory names on the build Macs. |
 | `RMB_IOS_SHORTCODE_DEFAULT`, `RMB_ANDROID_SHORTCODE_DEFAULT` | Shortcut | Default short codes shown in the Shortcut's dialogs. |
 
-`XcodeRemoteBuild.sh` loads `config.sh` from its own folder. It adds `export` lines for the four remote settings to the start of the script it streams over SSH, so nothing needs to be configured on the build Mac. The remote runners stop with a clear error if one of those settings is missing.
+`XcodeRemoteBuild.sh` loads `config.sh` from its own folder. It adds `export` lines for the seven remote settings to the start of the script it streams over SSH, so nothing needs to be configured on the build Mac. The remote runners stop with a clear error if one of those settings is missing.
 
 ## Setup
 
@@ -150,7 +153,7 @@ Then edit the values:
 
 - Checkouts of the repositories under `~/Code/<type>/`.
 - iOS: Xcode, CocoaPods, Bundler, and the Fastlane selector function (`RMB_FASTLANE_SELECTOR`) in `~/.zshrc`.
-- Android: a JDK 17 or 21, and an executable `gradlew` in `ShowCase/`.
+- Android: a JDK 17 or 21, and an executable `gradlew` in `<repo>/$RMB_ANDROID_PROJECT_DIR/`.
 - BrowserStack uploads: a file at `~/Code/BrowserStackAuth` containing `username:access_key`.
 - Delivery to the build folder: SSH access from the build Mac to `RMB_BUILDS_HOST`. Android builds are copied to `RMB_BUILDS_DIR`. Test reports go to `RMB_BUILDS_DIR/<timestamp>/<branch>/report.html`.
 

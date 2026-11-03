@@ -39,7 +39,7 @@ failure() {
 }
 
 # XcodeRemoteBuild.sh exports these from config.sh ahead of this script.
-for config_name in RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL; do
+for config_name in RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL RMB_IOS_IPA_DIR; do
   [[ -n "${!config_name:-}" ]] || failure "$config_name is not set; run this through XcodeRemoteBuild.sh with config.sh filled in"
 done
 
@@ -138,7 +138,7 @@ trap 'exit 130' HUP INT TERM
 upload_browserstack_ipa() {
   local ipa_directory ipa_path renamed_ipa_path ipa_filename ticket access_key
 
-  ipa_directory="$repo_path/Conference_ipa"
+  ipa_directory="$repo_path/$RMB_IOS_IPA_DIR"
   [[ -d "$ipa_directory" ]] || {
     printf 'Could not find IPA output directory: %s\n' "$ipa_directory" >&2
     return 1

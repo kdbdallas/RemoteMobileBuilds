@@ -90,26 +90,29 @@ is_path_segment "$repo" || failure "--repo must be a single directory name"
 repo_path="$HOME/Code"
 [[ -z "$account_type" ]] || repo_path="$repo_path/$account_type"
 repo_path="$repo_path/$repo"
-report_path=""
+report_directory="$repo_path/fastlane/test_output"
 [[ -d "$repo_path" ]] || failure "Could not find repository: $repo_path"
 
 report_transferred=0
 report_recovered_during_cleanup=0
-copy_report() {
-  local source_report="$1" report_timestamp report_destination report_destination_file report_size remote_report_size remote_report_host
+copy_report_directory() {
+  local source_directory="$1" report_timestamp report_destination source_html_count remote_html_count remote_report_host
 
   report_timestamp="$(date '+%Y-%m-%d_%H-%M-%S')"
   report_destination="$RMB_BUILDS_DIR/iOS/$report_timestamp/$branch"
-  report_destination_file="$report_destination/report.html"
-  report_size="$(wc -c < "$source_report" | tr -d '[:space:]')"
-  [[ "$report_size" =~ ^[1-9][0-9]*$ ]] || return 1
+  # report.html is an index when several devices are tested. Copy the whole
+  # directory so its relative links to each device's report keep working.
+  [[ -s "$source_directory/report.html" ]] || return 1
+  source_html_count="$(find "$source_directory" -type f -name '*.html' -print | wc -l | tr -d '[:space:]')"
+  [[ "$source_html_count" =~ ^[1-9][0-9]*$ ]] || return 1
   ssh "$RMB_BUILDS_HOST" "mkdir -p $(printf '%q' "$report_destination")" || return 1
-  scp "$source_report" "$RMB_BUILDS_HOST:$report_destination_file" || return 1
-  remote_report_size="$(ssh "$RMB_BUILDS_HOST" "wc -c < $(printf '%q' "$report_destination_file")" 2>/dev/null | tr -d '[:space:]')"
-  [[ "$remote_report_size" == "$report_size" ]] || return 1
+  scp -r "$source_directory"/. "$RMB_BUILDS_HOST:$report_destination/" || return 1
+  remote_html_count="$(ssh "$RMB_BUILDS_HOST" "find $(printf '%q' "$report_destination") -type f -name '*.html' -print | wc -l" 2>/dev/null | tr -d '[:space:]')"
+  [[ "$remote_html_count" == "$source_html_count" ]] || return 1
+  ssh "$RMB_BUILDS_HOST" "test -s $(printf '%q' "$report_destination/report.html")" || return 1
   remote_report_host="$(ssh "$RMB_BUILDS_HOST" 'hostname' 2>/dev/null | tr -d '\n')" || return 1
   report_transferred=1
-  printf 'REPORT: %s:%s (%s bytes)\n' "$remote_report_host" "$report_destination_file" "$report_size"
+  printf 'REPORT: %s:%s (%s HTML reports)\n' "$remote_report_host" "$report_destination" "$source_html_count"
 }
 
 cd "$repo_path" || failure "Could not enter repository: $repo_path"
@@ -127,16 +130,14 @@ cleanup_repo() {
   # streamed runner before its normal transfer step. Copy before git clean
   # removes the generated report inside the repository.
   if [[ $report_transferred -eq 0 ]]; then
-    for fallback_report_path in "$repo_path/fastlane/test_output/report.html"; do
-      [[ -f "$fallback_report_path" ]] || continue
+    if [[ -f "$report_directory/report.html" ]]; then
       printf '=== Recovering test report before cleanup ===\n'
-      if copy_report "$fallback_report_path"; then
+      if copy_report_directory "$report_directory"; then
         report_recovered_during_cleanup=1
       else
         cleanup_status=1
       fi
-      break
-    done
+    fi
   fi
   git reset --hard || cleanup_status=1
   git clean -ffdx || cleanup_status=1
@@ -200,14 +201,9 @@ else
 fi
 cat "$test_log"
 
-# The test lane writes its HTML report within the checked-out repository.
-for candidate_report_path in "$repo_path/fastlane/test_output/report.html"; do
-  if [[ -f "$candidate_report_path" ]]; then
-    report_path="$candidate_report_path"
-    break
-  fi
-done
-if [[ ! -f "$report_path" ]]; then
+# The test lane writes its index and per-device HTML reports within the
+# checked-out repository.
+if [[ ! -f "$report_directory/report.html" ]]; then
   if (( test_exit_status != 0 )); then
     # The Fastlane update notice is normally at the very end of its output.
     # Reprint only diagnostic lines after cleanup so Shortcuts' 12-line failure
@@ -216,14 +212,14 @@ if [[ ! -f "$report_path" ]]; then
     [[ -n "$test_failure_summary" ]] || test_failure_summary="$(tail -n 8 "$test_log")"
   fi
   rm -f "$test_log"
-  failure "Could not find test report: $report_path"
+  failure "Could not find test report: $report_directory/report.html"
 fi
 rm -f "$test_log"
 if (( test_exit_status != 0 )); then
   printf '=== Tests completed with failures; copying the HTML report ===\n'
 fi
 printf '\n=== Saving test report to the build folder ===\n'
-copy_report "$report_path" || failure "Could not copy and verify test report on $RMB_BUILDS_HOST"
+copy_report_directory "$report_directory" || failure "Could not copy and verify test reports on $RMB_BUILDS_HOST"
 
 cleanup_repo
 trap - EXIT HUP INT TERM

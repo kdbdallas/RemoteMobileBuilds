@@ -15,6 +15,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ios_remote_runner="$script_dir/XcodeRemoteBuildRemote.sh"
 android_remote_runner="$script_dir/AndroidRemoteBuildRemote.sh"
 ios_test_remote_runner="$script_dir/IOSUnitTestRemote.sh"
+android_test_remote_runner="$script_dir/AndroidUnitTestRemote.sh"
 config_file="$script_dir/config.sh"
 
 usage() {
@@ -33,7 +34,7 @@ Options:
   --buildType <type>          Android: Release, Debug, or BrowserStack.
   --buildPackage <type>       Android: APK or Bundle.
   --devApis <true|false>      Android BrowserStack: enable development APIs.
-  --unitTests                 Run the iOS Fastlane test lane instead of a build.
+  --unitTests                 Run the selected platform's unit-test runner instead of a build.
   --devices <Latest|All>      Optional iOS unit-test device selection.
   -h, --help                  Show this help text.
 
@@ -157,8 +158,18 @@ is_path_segment "$repo" || fail "--repo must be a single directory name"
 [[ "${XCODE_REMOTE_KEYCHAIN_PASSWORD:-}" != *$'\n'* ]] || fail "XCODE_REMOTE_KEYCHAIN_PASSWORD must not contain a newline"
 
 if [[ $unit_tests -eq 1 ]]; then
-  [[ -z "$devices" || "$devices" == "Latest" || "$devices" == "All" ]] || fail "--devices must be Latest or All"
-  remote_runner="$ios_test_remote_runner"
+  case "$platform" in
+    ios)
+      [[ -z "$devices" || "$devices" == "Latest" || "$devices" == "All" ]] || fail "--devices must be Latest or All"
+      remote_runner="$ios_test_remote_runner"
+      ;;
+    android)
+      [[ -z "$devices" ]] || fail "--devices is only available for iOS unit tests"
+      [[ -n "$short_code" ]] || fail "--shortCode is required for Android unit tests"
+      remote_runner="$android_test_remote_runner"
+      ;;
+    *) fail "--platform must be ios or android" ;;
+  esac
 else
   [[ -n "$short_code" ]] || fail "--shortCode is required"
   case "$platform" in
@@ -180,14 +191,14 @@ fi
 [[ -f "$config_file" ]] || fail "Could not find $config_file (copy config.example.sh to config.sh and fill it in)"
 # shellcheck source=config.example.sh
 source "$config_file" || fail "Could not load $config_file"
-for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL; do
+for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL RMB_IOS_IPA_DIR RMB_ANDROID_PROJECT_DIR RMB_ANDROID_BROWSERSTACK_FLAVOR; do
   [[ -n "${!config_name:-}" ]] || fail "$config_name is not set in $config_file"
   [[ "${!config_name}" != *$'\n'* ]] || fail "$config_name must not contain a newline"
 done
 # Prepend the settings the remote runners need to the streamed script, so
 # nothing machine-specific is stored in the runners themselves.
 remote_preamble=""
-for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL; do
+for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL RMB_IOS_IPA_DIR RMB_ANDROID_PROJECT_DIR RMB_ANDROID_BROWSERSTACK_FLAVOR; do
   printf -v config_line 'export %s=%q\n' "$config_name" "${!config_name}"
   remote_preamble+="$config_line"
 done
@@ -197,7 +208,11 @@ remote_arguments=( --repo "$repo" )
 [[ -z "$account_type" ]] || remote_arguments+=( --type "$account_type" )
 remote_arguments+=( --branch "$branch" )
 if [[ $unit_tests -eq 1 ]]; then
-  [[ -z "$devices" ]] || remote_arguments+=( --devices "$devices" )
+  if [[ "$platform" == "ios" ]]; then
+    [[ -z "$devices" ]] || remote_arguments+=( --devices "$devices" )
+  else
+    remote_arguments+=( --shortCode "$short_code" )
+  fi
 elif [[ "$platform" == "ios" ]]; then
   remote_arguments+=( --shortCode "$short_code" )
   remote_arguments+=( --lane "$lane" )
@@ -224,7 +239,7 @@ if [[ -n "${XCODE_REMOTE_KEYCHAIN_PASSWORD:-}" ]]; then
 else
   # ssh joins command arguments into text for the remote login shell. Quote
   # each argument before that handoff so branch names such as
-  # "feature/CM-1427-Q&A-Attendee-Ask-Question" arrive intact.
+  # "feature/APP-42-Q&A-Example" arrive intact.
   remote_command='bash -s --'
   for remote_argument in "${remote_arguments[@]}"; do
     printf -v escaped_argument '%q' "$remote_argument"

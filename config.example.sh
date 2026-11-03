@@ -17,6 +17,12 @@ RMB_BUILDS_DIR="/Users/you/Builds"
 RMB_FASTLANE_SELECTOR="use-fastlane-env"
 # Google Drive account passed to the Fastlane selector function.
 RMB_GDRIVE_EMAIL="you@example.com"
+# Folder inside the iOS repository where the BrowserStack lane writes its IPA.
+RMB_IOS_IPA_DIR="App_ipa"
+# Folder inside the Android repository that contains the Gradle project.
+RMB_ANDROID_PROJECT_DIR="AndroidApp"
+# Product flavor built by Android BrowserStack builds (assemble<flavor>Debug).
+RMB_ANDROID_BROWSERSTACK_FLAVOR="MyFlavor"
 
 # --- Used by the Shortcut (Shortcut/Type-RunShellScript.sh) ---
 
@@ -30,4 +36,4 @@ RMB_IOS_REPO="ios-app"
 RMB_ANDROID_REPO="android-app"
 # Default short codes offered in the Shortcut's dialogs.
 RMB_IOS_SHORTCODE_DEFAULT="MyApp"
-RMB_ANDROID_SHORTCODE_DEFAULT="CONTAINER"
+RMB_ANDROID_SHORTCODE_DEFAULT="MyFlavor"
