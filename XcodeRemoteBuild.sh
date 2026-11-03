@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+# Run a Fastlane job on a repository available on a configured SSH host.
+#
+# Example:
+#   ./XcodeRemoteBuild.sh ios-build-mac --type work --repo ios-app \
+#     --branch feature/CM-123-Test --lane createAppForBrowserStack \
+#     --shortCode MyApp --features apiDev:true --newApple
+#
+# Machine-specific settings are read from config.sh next to this script.
+# Copy config.example.sh to config.sh and fill it in.
+
+set -u
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ios_remote_runner="$script_dir/XcodeRemoteBuildRemote.sh"
+android_remote_runner="$script_dir/AndroidRemoteBuildRemote.sh"
+ios_test_remote_runner="$script_dir/IOSUnitTestRemote.sh"
+config_file="$script_dir/config.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: XcodeRemoteBuild.sh <ssh-host> --repo <repository-name> [options]
+
+Options:
+  --type <account-type>       Repository subdirectory under ~/Code (for example, personal).
+  --repo <repository-name>    Name of the repository directory (required).
+  --branch <branch>           Git branch to check out on the remote host (required).
+  --lane <lane>               Fastlane lane to run (required).
+  --shortCode <short-code>    Value passed to Fastlane as name:<short-code> (required).
+  --features <features>       Optional Fastlane parameter, for example apiDev:true.
+  --newApple                  Use the new Fastlane environment; defaults to old.
+  --platform <ios|android>    Build platform; defaults to ios.
+  --buildType <type>          Android: Release, Debug, or BrowserStack.
+  --buildPackage <type>       Android: APK or Bundle.
+  --devApis <true|false>      Android BrowserStack: enable development APIs.
+  --unitTests                 Run the iOS Fastlane test lane instead of a build.
+  --devices <Latest|All>      Optional iOS unit-test device selection.
+  -h, --help                  Show this help text.
+
+The remote repository path is ~/Code/<type>/<repo> when --type is present,
+or ~/Code/<repo> when it is omitted. SSH authentication (including the key)
+is taken from your normal SSH configuration.
+
+To unlock the remote login Keychain for signing, set
+XCODE_REMOTE_KEYCHAIN_PASSWORD in your local environment before running this
+script. It is sent to the runner over SSH standard input, not as an argument.
+EOF
+}
+
+fail() {
+  printf 'FAILURE: %s\n' "$1" >&2
+  exit 1
+}
+
+is_path_segment() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && [[ "$1" != "." && "$1" != ".." ]]
+}
+
+[[ $# -gt 0 ]] || { usage >&2; exit 2; }
+[[ "$1" != "-h" && "$1" != "--help" ]] || { usage; exit 0; }
+
+host="$1"
+shift
+repo=""
+account_type=""
+branch=""
+lane=""
+short_code=""
+features=""
+new_apple=0
+platform="ios"
+build_type=""
+build_package=""
+dev_apis=""
+unit_tests=0
+devices=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --type)
+      [[ $# -ge 2 ]] || fail "--type requires a value"
+      account_type="$2"
+      shift 2
+      ;;
+    --repo)
+      [[ $# -ge 2 ]] || fail "--repo requires a value"
+      repo="$2"
+      shift 2
+      ;;
+    --branch)
+      [[ $# -ge 2 ]] || fail "--branch requires a value"
+      branch="$2"
+      shift 2
+      ;;
+    --lane)
+      [[ $# -ge 2 ]] || fail "--lane requires a value"
+      lane="$2"
+      shift 2
+      ;;
+    --shortCode)
+      [[ $# -ge 2 ]] || fail "--shortCode requires a value"
+      short_code="$2"
+      shift 2
+      ;;
+    --features)
+      [[ $# -ge 2 ]] || fail "--features requires a value"
+      features="$2"
+      shift 2
+      ;;
+    --newApple)
+      new_apple=1
+      shift
+      ;;
+    --platform)
+      [[ $# -ge 2 ]] || fail "--platform requires a value"
+      platform="$2"
+      shift 2
+      ;;
+    --buildType)
+      [[ $# -ge 2 ]] || fail "--buildType requires a value"
+      build_type="$2"
+      shift 2
+      ;;
+    --buildPackage)
+      [[ $# -ge 2 ]] || fail "--buildPackage requires a value"
+      build_package="$2"
+      shift 2
+      ;;
+    --devApis)
+      [[ $# -ge 2 ]] || fail "--devApis requires a value"
+      dev_apis="$2"
+      shift 2
+      ;;
+    --unitTests)
+      unit_tests=1
+      shift
+      ;;
+    --devices)
+      [[ $# -ge 2 ]] || fail "--devices requires a value"
+      devices="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "Unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ -n "$repo" ]] || fail "--repo is required"
+[[ -n "$branch" ]] || fail "--branch is required"
+is_path_segment "$repo" || fail "--repo must be a single directory name"
+[[ -z "$account_type" ]] || is_path_segment "$account_type" || fail "--type must be a single directory name"
+[[ "${XCODE_REMOTE_KEYCHAIN_PASSWORD:-}" != *$'\n'* ]] || fail "XCODE_REMOTE_KEYCHAIN_PASSWORD must not contain a newline"
+
+if [[ $unit_tests -eq 1 ]]; then
+  [[ -z "$devices" || "$devices" == "Latest" || "$devices" == "All" ]] || fail "--devices must be Latest or All"
+  remote_runner="$ios_test_remote_runner"
+else
+  [[ -n "$short_code" ]] || fail "--shortCode is required"
+  case "$platform" in
+    ios)
+      [[ -n "$lane" ]] || fail "--lane is required"
+      remote_runner="$ios_remote_runner"
+      ;;
+    android)
+      [[ "$build_type" == "Release" || "$build_type" == "Debug" || "$build_type" == "BrowserStack" ]] || fail "--buildType must be Release, Debug, or BrowserStack"
+      [[ "$build_package" == "APK" || "$build_package" == "Bundle" ]] || fail "--buildPackage must be APK or Bundle"
+      [[ -z "$dev_apis" || "$dev_apis" == "true" || "$dev_apis" == "false" ]] || fail "--devApis must be true or false"
+      remote_runner="$android_remote_runner"
+      ;;
+    *) fail "--platform must be ios or android" ;;
+  esac
+fi
+[[ -f "$remote_runner" ]] || fail "Could not find remote runner: $remote_runner"
+
+[[ -f "$config_file" ]] || fail "Could not find $config_file (copy config.example.sh to config.sh and fill it in)"
+# shellcheck source=config.example.sh
+source "$config_file" || fail "Could not load $config_file"
+for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL; do
+  [[ -n "${!config_name:-}" ]] || fail "$config_name is not set in $config_file"
+  [[ "${!config_name}" != *$'\n'* ]] || fail "$config_name must not contain a newline"
+done
+# Prepend the settings the remote runners need to the streamed script, so
+# nothing machine-specific is stored in the runners themselves.
+remote_preamble=""
+for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL; do
+  printf -v config_line 'export %s=%q\n' "$config_name" "${!config_name}"
+  remote_preamble+="$config_line"
+done
+
+# The runner is sent through stdin, so it need not be preinstalled on the host.
+remote_arguments=( --repo "$repo" )
+[[ -z "$account_type" ]] || remote_arguments+=( --type "$account_type" )
+remote_arguments+=( --branch "$branch" )
+if [[ $unit_tests -eq 1 ]]; then
+  [[ -z "$devices" ]] || remote_arguments+=( --devices "$devices" )
+elif [[ "$platform" == "ios" ]]; then
+  remote_arguments+=( --shortCode "$short_code" )
+  remote_arguments+=( --lane "$lane" )
+  [[ -z "$features" ]] || remote_arguments+=( --features "$features" )
+  [[ $new_apple -eq 0 ]] || remote_arguments+=( --newApple )
+else
+  remote_arguments+=( --shortCode "$short_code" )
+  remote_arguments+=( --buildType "$build_type" --buildPackage "$build_package" )
+  [[ -z "$dev_apis" ]] || remote_arguments+=( --devApis "$dev_apis" )
+  [[ -z "$features" ]] || remote_arguments+=( --features "$features" )
+fi
+ssh_arguments=( "$host" bash -s -- "${remote_arguments[@]}" )
+if [[ -n "${XCODE_REMOTE_KEYCHAIN_PASSWORD:-}" ]]; then
+  # Feed the password before the remote script; it is never placed in the SSH
+  # command or argument list. The small remote Bash wrapper consumes that line
+  # and passes the remainder to the runner as its script source.
+  remote_wrapper='IFS= read -r XCODE_REMOTE_KEYCHAIN_PASSWORD; export XCODE_REMOTE_KEYCHAIN_PASSWORD; exec bash -s -- "$@"'
+  printf -v remote_command 'bash -c %q bash' "$remote_wrapper"
+  for remote_argument in "${remote_arguments[@]}"; do
+    printf -v escaped_argument '%q' "$remote_argument"
+    remote_command+=" $escaped_argument"
+  done
+  { printf '%s\n' "$XCODE_REMOTE_KEYCHAIN_PASSWORD"; printf '%s' "$remote_preamble"; cat "$remote_runner"; } | ssh "$host" "$remote_command"
+else
+  # ssh joins command arguments into text for the remote login shell. Quote
+  # each argument before that handoff so branch names such as
+  # "feature/CM-1427-Q&A-Attendee-Ask-Question" arrive intact.
+  remote_command='bash -s --'
+  for remote_argument in "${remote_arguments[@]}"; do
+    printf -v escaped_argument '%q' "$remote_argument"
+    remote_command+=" $escaped_argument"
+  done
+  { printf '%s' "$remote_preamble"; cat "$remote_runner"; } | ssh "$host" "$remote_command"
+fi
+ssh_status=$?
+
+if [[ $ssh_status -ne 0 ]]; then
+  printf 'FAILURE: Remote run failed (SSH or Fastlane exited with status %d).\n' "$ssh_status" >&2
+fi
+
+exit "$ssh_status"
