@@ -91,10 +91,21 @@ APPLESCRIPT
 else
   branch=$(osascript -e 'text returned of (display dialog "Branch" default answer "" buttons {"Cancel", "Continue"} default button "Continue")') || exit 0
 [[ "$branch" == "Cancel" ]] && exit 0
-  buildType=$(osascript -e 'choose from list {"Release", "Debug", "BrowserStack"} with prompt "Build Type" default items {"Release"}') || exit 0
+  buildType=$(osascript -e 'choose from list {"Release", "Debug", "BrowserStack", "Play Store"} with prompt "Build Type" default items {"Release"}') || exit 0
   [[ "$buildType" == "false" ]] && exit 0
-  buildPackage=$(osascript -e 'choose from list {"APK", "Bundle"} with prompt "Build Package" default items {"APK"}') || exit 0
+  buildPackageDefault="APK"
+  [[ "$buildType" == "Play Store" ]] && buildPackageDefault="Bundle"
+  buildPackage=$(osascript - "$buildPackageDefault" <<'APPLESCRIPT'
+on run argv
+  choose from list {"APK", "Bundle"} with prompt "Build Package" default items {item 1 of argv}
+end run
+APPLESCRIPT
+) || exit 0
   [[ "$buildPackage" == "false" ]] && exit 0
+  if [[ "$buildType" == "Play Store" && "$buildPackage" != "Bundle" ]]; then
+    osascript -e 'display alert "Play Store requires a Bundle" message "Google Play publishing requires an Android App Bundle (.aab)." as critical'
+    exit 0
+  fi
   devApis=""
   if [[ "$buildType" == "BrowserStack" ]]; then
     devApis=$(osascript -e 'button returned of (display dialog "Dev APIs Enabled" buttons {"true", "false"} default button "false")') || exit 0
@@ -106,6 +117,16 @@ end run
 APPLESCRIPT
 ) || exit 0
   [[ "$shortCode" == "Cancel" ]] && exit 0
+  bundleID=""
+  if [[ "$buildType" == "Play Store" ]]; then
+    bundleID=$(osascript - "com.goeshow.$shortCode" <<'APPLESCRIPT'
+on run argv
+  text returned of (display dialog "Bundle ID" default answer (item 1 of argv) buttons {"Cancel", "Continue"} default button "Continue")
+end run
+APPLESCRIPT
+) || exit 0
+    [[ "$bundleID" == "Cancel" ]] && exit 0
+  fi
   features=$(osascript -e 'text returned of (display dialog "Other Feature Flags (optional; space-separated, without -P)" default answer "" buttons {"Cancel", "Continue"} default button "Continue")') || exit 0
   [[ "$features" == "Cancel" ]] && exit 0
 
@@ -120,6 +141,7 @@ APPLESCRIPT
     --buildPackage "$buildPackage"
     --shortCode "$shortCode"
   )
+  [[ "$buildType" == "Play Store" ]] && buildCommand+=(--bundleId "$bundleID")
   [[ "$buildType" == "BrowserStack" ]] && buildCommand+=(--devApis "$devApis")
 fi
 fi
@@ -131,6 +153,9 @@ exitStatus=$?
 if (( exitStatus == 0 )); then
   if [[ "$unitTests" == "Yes" ]]; then
     successMessage=$(printf 'SUCCESS: Tests Ran\nReport saved to the timestamped Builds folder.')
+  elif [[ "$platform" == "Android" && "$buildType" == "Play Store" ]]; then
+    successMessage=$(printf '%s\n' "$output" | sed -n -e 's/^PLAY_STORE_RESULT: //p' -e '/^SUCCESS:/p')
+    [[ -n "$successMessage" ]] || successMessage=$(printf '%s\n' "$output" | tail -n 12)
   else
     successMessage=$(printf '%s\n' "$output" | grep -E '^(SUCCESS:|REPORT:)' | tail -n 2)
     [[ -n "$successMessage" ]] || successMessage=$(printf '%s\n' "$output" | tail -n 12)

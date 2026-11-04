@@ -18,9 +18,9 @@ Shortcut (Run Shell Script)
 Each remote runner:
 
 1. Resolves the repository at `~/Code/<type>/<repo>`, or `~/Code/<repo>` when `--type` is omitted.
-2. Resets and cleans the checkout (`git reset --hard`, `git clean -ffdx`), then checks out the requested branch.
+2. Resets and cleans the checkout (`git reset --hard`, `git clean -ffdx`), fetches the requested branch from `origin`, then checks it out.
 3. Runs the build or tests.
-4. Delivers the result: it uploads the build to BrowserStack or copies it to the build folder.
+4. Delivers the result: it uploads the build to BrowserStack, publishes it to Google Play, or copies it to the build folder.
 5. Resets and cleans the checkout again. A trap does this whether the run succeeds or fails.
 
 Each runner ends with a single `SUCCESS: ...` or `FAILURE: ...` line, which the Shortcut uses for its alert.
@@ -54,8 +54,9 @@ Each runner ends with a single `SUCCESS: ...` or `FAILURE: ...` line, which the 
 | `--lane <lane>` | iOS build | Fastlane lane to run. Required for iOS builds. |
 | `--newApple` | iOS build | Use the "new" Fastlane environment. The default is "old". |
 | `--features <text>` | Builds | iOS: extra Fastlane options, such as `featureFlags:BROWSERSTACK apiDev:true`. Android: space-separated Gradle properties without `-P`. |
-| `--buildType <type>` | Android | `Release`, `Debug`, or `BrowserStack`. |
+| `--buildType <type>` | Android | `Release`, `Debug`, `BrowserStack`, or `Play Store`. |
 | `--buildPackage <type>` | Android | `APK` or `Bundle` (AAB). |
+| `--bundleId <id>` | Android Play Store | Android application ID to publish. Required with `--buildType 'Play Store'`; the package must be `Bundle`. |
 | `--devApis <true\|false>` | Android BrowserStack | Sets `-PAPI_DEV_ENABLED`. |
 | `--unitTests` | iOS tests | Run the Fastlane test lane instead of a build. |
 | `--devices <Latest\|All>` | iOS tests | Optional device selection passed to the test lane. |
@@ -106,10 +107,13 @@ Android release bundle:
 ### Android builds (`AndroidRemoteBuildRemote.sh`)
 
 - Builds the Gradle project in `<repo>/$RMB_ANDROID_PROJECT_DIR`.
+- Preserves the ignored `local.properties` file across cleanup so machine-local
+  settings such as `KEYSTORE_DIR` remain available for later builds.
 - Selects Java 17 or 21. It tries `JAVA_HOME`, then `/usr/libexec/java_home`, then the JBR bundled with Android Studio, then Homebrew, jenv, and SDKMAN installs.
-- Runs `assemble<shortCode><buildType>` for APKs or `bundle<shortCode><buildType>` for AABs. `BrowserStack` builds run `assemble<RMB_ANDROID_BROWSERSTACK_FLAVOR>Debug -Pbrowserstack=true`.
+- Runs `assemble<shortCode><buildType>` for APKs or `bundle<shortCode><buildType>` for AABs. `BrowserStack` builds run `assemble<RMB_ANDROID_BROWSERSTACK_FLAVOR>Debug -Pbrowserstack=true`. Play Store builds run `bundle<shortCode>Release`.
 - Picks the newest matching artifact under `app/build/outputs` and renames it to `<ticket>-<shortCode>.<apk|aab>`.
-- Uploads `BrowserStack` builds to BrowserStack. It copies other builds to the build folder.
+- Uploads `BrowserStack` builds to BrowserStack, publishes Play Store bundles with `tools/play_release.py`, and copies other builds to the build folder. The Shortcut alert includes the publisher result.
+- Play Store builds require `tools/play_release.py` on the selected Android-app branch and a service-account key path configured through `RMB_ANDROID_PLAY_SERVICE_ACCOUNT_JSON`; the key itself remains on the Android build Mac.
 
 ### Artifact naming
 
@@ -134,12 +138,13 @@ Then edit the values:
 | `RMB_IOS_IPA_DIR` | iOS build runner | Folder inside the iOS repository where the BrowserStack lane writes its IPA. |
 | `RMB_ANDROID_PROJECT_DIR` | Android runners | Folder inside the Android repository that contains the Gradle project. |
 | `RMB_ANDROID_BROWSERSTACK_FLAVOR` | Android build runner | Product flavor built by BrowserStack builds (`assemble<flavor>Debug`). |
+| `RMB_ANDROID_PLAY_SERVICE_ACCOUNT_JSON` | Android Play Store builds | Absolute path on the Android build Mac to the Play Developer API service-account JSON key. |
 | `RMB_IOS_HOST`, `RMB_ANDROID_HOST` | Shortcut | SSH hosts that run iOS and Android jobs. |
 | `RMB_REPO_TYPE` | Shortcut | Subdirectory under `~/Code` on the build Macs. Leave it empty if there is none. |
 | `RMB_IOS_REPO`, `RMB_ANDROID_REPO` | Shortcut | Repository directory names on the build Macs. |
 | `RMB_IOS_SHORTCODE_DEFAULT`, `RMB_ANDROID_SHORTCODE_DEFAULT` | Shortcut | Default short codes shown in the Shortcut's dialogs. |
 
-`XcodeRemoteBuild.sh` loads `config.sh` from its own folder. It adds `export` lines for the seven remote settings to the start of the script it streams over SSH, so nothing needs to be configured on the build Mac. The remote runners stop with a clear error if one of those settings is missing.
+`XcodeRemoteBuild.sh` loads `config.sh` from its own folder. It adds `export` lines for the required remote settings, plus the optional Play service-account key path when configured, to the start of the script it streams over SSH. The remote runners stop with a clear error if a required setting is missing.
 
 ## Setup
 
@@ -176,6 +181,6 @@ When you run it, the Shortcut asks for:
 1. The platform: iOS or Android.
 2. Whether to run unit tests. For iOS, it then asks which devices to use.
 3. For iOS builds: the Apple account (Old or New), the branch, the lane (`createAppForBrowserStack`, `updateAppForStore`, or `createLaunchImages`), the short code, and optional feature flags.
-4. For Android builds: the branch, the build type, the package type, the Dev APIs setting (BrowserStack builds only), the short code, and optional Gradle feature flags.
+4. For Android builds: the branch, the build type, the package type, the Dev APIs setting (BrowserStack builds only), the short code, and optional Gradle feature flags. Play Store builds require Bundle, then ask for a Bundle ID defaulting to `com.goeshow.<shortCode>` and publish the completed release bundle to production.
 
-On success, it shows the `SUCCESS:` and `REPORT:` lines. On failure, it shows a critical alert with the lane or build type, the branch, and the last 12 lines of output.
+On success, it shows the `SUCCESS:` and `REPORT:` lines; Play Store builds also show the publisher result. On failure, it shows a critical alert with the lane or build type, the branch, and the last 12 lines of output.

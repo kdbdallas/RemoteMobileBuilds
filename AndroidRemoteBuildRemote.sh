@@ -5,12 +5,13 @@ set -u
 
 usage() {
   cat <<'EOF'
-Usage: AndroidRemoteBuildRemote.sh --repo <repository-name> --branch <branch> --shortCode <short-code> --buildType <Release|Debug|BrowserStack> --buildPackage <APK|Bundle> [options]
+Usage: AndroidRemoteBuildRemote.sh --repo <repository-name> --branch <branch> --shortCode <short-code> --buildType <Release|Debug|BrowserStack|Play Store> --buildPackage <APK|Bundle> [options]
 
 Options:
   --type <account-type>       Repository subdirectory under ~/Code.
   --features <flags>          Space-separated Gradle -P values (without -P).
   --devApis <true|false>      BrowserStack development APIs setting.
+  --bundleId <id>             Play Store application ID to publish.
 EOF
 }
 
@@ -95,6 +96,7 @@ branch=""
 short_code=""
 build_type=""
 build_package=""
+bundle_id=""
 dev_apis=""
 features=""
 
@@ -106,6 +108,7 @@ while [[ $# -gt 0 ]]; do
     --shortCode) [[ $# -ge 2 ]] || failure "--shortCode requires a value"; short_code="$2"; shift 2 ;;
     --buildType) [[ $# -ge 2 ]] || failure "--buildType requires a value"; build_type="$2"; shift 2 ;;
     --buildPackage) [[ $# -ge 2 ]] || failure "--buildPackage requires a value"; build_package="$2"; shift 2 ;;
+    --bundleId) [[ $# -ge 2 ]] || failure "--bundleId requires a value"; bundle_id="$2"; shift 2 ;;
     --devApis) [[ $# -ge 2 ]] || failure "--devApis requires a value"; dev_apis="$2"; shift 2 ;;
     --features) [[ $# -ge 2 ]] || failure "--features requires a value"; features="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -117,8 +120,13 @@ done
 [[ -n "$branch" ]] || failure "--branch is required"
 [[ -n "$short_code" ]] || failure "--shortCode is required"
 [[ "$short_code" =~ ^[A-Za-z0-9_-]+$ ]] || failure "--shortCode may only contain letters, numbers, underscores, and hyphens"
-[[ "$build_type" == "Release" || "$build_type" == "Debug" || "$build_type" == "BrowserStack" ]] || failure "--buildType must be Release, Debug, or BrowserStack"
+[[ "$build_type" == "Release" || "$build_type" == "Debug" || "$build_type" == "BrowserStack" || "$build_type" == "Play Store" ]] || failure "--buildType must be Release, Debug, BrowserStack, or Play Store"
 [[ "$build_package" == "APK" || "$build_package" == "Bundle" ]] || failure "--buildPackage must be APK or Bundle"
+if [[ "$build_type" == "Play Store" ]]; then
+  [[ "$build_package" == "Bundle" ]] || failure "Play Store builds require --buildPackage Bundle"
+  [[ "$bundle_id" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ ]] || failure "--bundleId must be a valid Android application ID"
+  [[ -n "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:-}" ]] || failure "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is not set for Play Store publishing"
+fi
 [[ -z "$dev_apis" || "$dev_apis" == "true" || "$dev_apis" == "false" ]] || failure "--devApis must be true or false"
 is_path_segment "$repo" || failure "--repo must be a single directory name"
 [[ -z "$account_type" ]] || is_path_segment "$account_type" || failure "--type must be a single directory name"
@@ -130,6 +138,17 @@ repo_path="$repo_path/$repo"
 project_path="$repo_path/$RMB_ANDROID_PROJECT_DIR"
 [[ -d "$repo_path" ]] || failure "Could not find repository: $repo_path"
 [[ -d "$project_path" ]] || failure "Could not find Android project: $project_path"
+
+# local.properties is deliberately ignored and holds machine-local paths such
+# as KEYSTORE_DIR. Preserve it outside the checkout so the required clean can
+# still remove every generated build artifact without losing configuration for
+# the next run.
+local_properties_path="$project_path/local.properties"
+local_properties_backup=""
+if [[ -f "$local_properties_path" ]]; then
+  local_properties_backup="$(mktemp -t remote-mobile-local-properties)" || failure "Could not back up local.properties"
+  cp "$local_properties_path" "$local_properties_backup" || failure "Could not back up local.properties"
+fi
 
 cd "$repo_path" || failure "Could not enter repository: $repo_path"
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || failure "Repository is not a Git work tree: $repo_path"
@@ -146,12 +165,17 @@ cleanup_repo() {
   printf '\n=== Resetting remote repository ===\n'
   git reset --hard || cleanup_status=1
   git clean -ffdx || cleanup_status=1
+  if [[ -n "$local_properties_backup" ]]; then
+    cp "$local_properties_backup" "$local_properties_path" || cleanup_status=1
+    rm -f "$local_properties_backup"
+  fi
 }
 trap cleanup_repo EXIT
 trap 'exit 130' HUP INT TERM
 
 printf '=== Checking out branch: %s ===\n' "$branch"
-git checkout "$branch" || failure "Could not check out branch: $branch"
+git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch" || failure "Could not fetch branch from origin: $branch"
+git checkout -B "$branch" "origin/$branch" || failure "Could not check out branch: $branch"
 cd "$project_path" || failure "Could not enter Android project: $project_path"
 [[ -x ./gradlew ]] || failure "Could not find executable Gradle wrapper: $project_path/gradlew"
 configure_java || failure "Could not find a Java runtime on the remote Mac"
@@ -162,6 +186,9 @@ printf '=== Using Android SDK: %s ===\n' "$ANDROID_HOME"
 if [[ "$build_type" == "BrowserStack" ]]; then
   gradle_command=( ./gradlew "assemble${RMB_ANDROID_BROWSERSTACK_FLAVOR}Debug" -Pbrowserstack=true )
   artifact_extension="apk"
+elif [[ "$build_type" == "Play Store" ]]; then
+  gradle_command=( "./gradlew" "bundle${short_code}Release" )
+  artifact_extension="aab"
 else
   artifact_extension="apk"
   if [[ "$build_package" == "APK" ]]; then
@@ -187,7 +214,29 @@ fi
 printf '\n=== Running Android build ===\nCommand:'
 printf ' %q' "${gradle_command[@]}"
 printf '\n'
-"${gradle_command[@]}" || failure "Gradle build failed"
+gradle_log="$(mktemp -t remote-mobile-gradle)" || failure "Could not create Gradle log"
+"${gradle_command[@]}" 2>&1 | tee "$gradle_log"
+gradle_status=${PIPESTATUS[0]}
+if [[ $gradle_status -ne 0 ]]; then
+  # The Shortcut shows only the final twelve lines. Clean the checkout first,
+  # then emit the actionable Gradle block so it remains visible in that alert.
+  cleanup_repo
+  trap - EXIT HUP INT TERM
+  printf '\n=== Gradle failure summary ===\n' >&2
+  gradle_summary="$(awk '
+    /^\* What went wrong:/ { printing = 1 }
+    printing { print }
+    printing && /^\* Try:/ { exit }
+  ' "$gradle_log")"
+  if [[ -z "$gradle_summary" ]]; then
+    gradle_summary="$(grep -Ei 'execution failed for task|^> |^e: |error:|caused by:|could not resolve|a problem occurred' "$gradle_log" | tail -n 12 || true)"
+  fi
+  [[ -n "$gradle_summary" ]] || gradle_summary="$(tail -n 12 "$gradle_log")"
+  printf '%s\n' "$gradle_summary" >&2
+  rm -f "$gradle_log"
+  failure "Gradle build failed"
+fi
+rm -f "$gradle_log"
 
 artifact_path=""
 artifact_mtime=-1
@@ -226,6 +275,27 @@ if [[ "$build_type" == "BrowserStack" ]]; then
     'https://api-cloud.browserstack.com/app-live/upload' \
     -F "file=@$renamed_artifact_path" || failure "Could not upload build to BrowserStack"
   printf 'SUCCESS: Uploaded to BrowserStack\n'
+elif [[ "$build_type" == "Play Store" ]]; then
+  release_tool="tools/play_release.py"
+  [[ -f "$repo_path/$release_tool" ]] || failure "Could not find Play Store release tool: $repo_path/$release_tool"
+  absolute_artifact_path="$project_path/$renamed_artifact_path"
+  play_release_command=( python3 "$release_tool" --package-name "$bundle_id" --bundle "$absolute_artifact_path" --track production --status auto --confirm-production )
+  printf '\n=== Publishing %s to Google Play ===\nCommand:' "$(basename "$renamed_artifact_path")"
+  printf ' %q' "${play_release_command[@]}"
+  printf '\n'
+  play_release_output="$(cd "$repo_path" && "${play_release_command[@]}" 2>&1)"
+  play_release_status=$?
+  printf '%s\n' "$play_release_output"
+  if [[ $play_release_status -ne 0 ]]; then
+    # Cleanup emits several lines after the publisher's response, which would
+    # otherwise hide the API error from the Shortcut's 12-line failure alert.
+    cleanup_repo
+    trap - EXIT HUP INT TERM
+    printf '\n=== Google Play publishing failure ===\n%s\n' "$play_release_output" >&2
+    failure "Google Play publishing failed"
+  fi
+  printf 'PLAY_STORE_RESULT: %s\n' "$play_release_output"
+  printf 'SUCCESS: Published to Play Store\n'
 else
   printf '\n=== Saving %s to the build folder ===\n' "$(basename "$renamed_artifact_path")"
   scp "$renamed_artifact_path" "$RMB_BUILDS_HOST:$RMB_BUILDS_DIR/" || failure "Could not copy build to $RMB_BUILDS_HOST"

@@ -31,8 +31,9 @@ Options:
   --features <features>       Optional Fastlane parameter, for example apiDev:true.
   --newApple                  Use the new Fastlane environment; defaults to old.
   --platform <ios|android>    Build platform; defaults to ios.
-  --buildType <type>          Android: Release, Debug, or BrowserStack.
+  --buildType <type>          Android: Release, Debug, BrowserStack, or Play Store.
   --buildPackage <type>       Android: APK or Bundle.
+  --bundleId <id>             Android Play Store: application ID to publish.
   --devApis <true|false>      Android BrowserStack: enable development APIs.
   --unitTests                 Run the selected platform's unit-test runner instead of a build.
   --devices <Latest|All>      Optional iOS unit-test device selection.
@@ -72,6 +73,7 @@ new_apple=0
 platform="ios"
 build_type=""
 build_package=""
+bundle_id=""
 dev_apis=""
 unit_tests=0
 devices=""
@@ -127,6 +129,11 @@ while [[ $# -gt 0 ]]; do
       build_package="$2"
       shift 2
       ;;
+    --bundleId)
+      [[ $# -ge 2 ]] || fail "--bundleId requires a value"
+      bundle_id="$2"
+      shift 2
+      ;;
     --devApis)
       [[ $# -ge 2 ]] || fail "--devApis requires a value"
       dev_apis="$2"
@@ -178,8 +185,12 @@ else
       remote_runner="$ios_remote_runner"
       ;;
     android)
-      [[ "$build_type" == "Release" || "$build_type" == "Debug" || "$build_type" == "BrowserStack" ]] || fail "--buildType must be Release, Debug, or BrowserStack"
+      [[ "$build_type" == "Release" || "$build_type" == "Debug" || "$build_type" == "BrowserStack" || "$build_type" == "Play Store" ]] || fail "--buildType must be Release, Debug, BrowserStack, or Play Store"
       [[ "$build_package" == "APK" || "$build_package" == "Bundle" ]] || fail "--buildPackage must be APK or Bundle"
+      if [[ "$build_type" == "Play Store" ]]; then
+        [[ "$build_package" == "Bundle" ]] || fail "Play Store builds require --buildPackage Bundle"
+        [[ "$bundle_id" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ ]] || fail "--bundleId must be a valid Android application ID"
+      fi
       [[ -z "$dev_apis" || "$dev_apis" == "true" || "$dev_apis" == "false" ]] || fail "--devApis must be true or false"
       remote_runner="$android_remote_runner"
       ;;
@@ -195,6 +206,11 @@ for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_FASTLANE_SELECTOR RMB_GDRI
   [[ -n "${!config_name:-}" ]] || fail "$config_name is not set in $config_file"
   [[ "${!config_name}" != *$'\n'* ]] || fail "$config_name must not contain a newline"
 done
+android_play_service_account_json="${RMB_ANDROID_PLAY_SERVICE_ACCOUNT_JSON:-}"
+[[ "$android_play_service_account_json" != *$'\n'* ]] || fail "RMB_ANDROID_PLAY_SERVICE_ACCOUNT_JSON must not contain a newline"
+if [[ $unit_tests -eq 0 && "$platform" == "android" && "$build_type" == "Play Store" ]]; then
+  [[ -n "$android_play_service_account_json" ]] || fail "RMB_ANDROID_PLAY_SERVICE_ACCOUNT_JSON is required for Play Store builds"
+fi
 # Prepend the settings the remote runners need to the streamed script, so
 # nothing machine-specific is stored in the runners themselves.
 remote_preamble=""
@@ -202,6 +218,10 @@ for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_FASTLANE_SELECTOR RMB_GDRI
   printf -v config_line 'export %s=%q\n' "$config_name" "${!config_name}"
   remote_preamble+="$config_line"
 done
+if [[ -n "$android_play_service_account_json" ]]; then
+  printf -v config_line 'export GOOGLE_PLAY_SERVICE_ACCOUNT_JSON=%q\n' "$android_play_service_account_json"
+  remote_preamble+="$config_line"
+fi
 
 # The runner is sent through stdin, so it need not be preinstalled on the host.
 remote_arguments=( --repo "$repo" )
@@ -221,6 +241,7 @@ elif [[ "$platform" == "ios" ]]; then
 else
   remote_arguments+=( --shortCode "$short_code" )
   remote_arguments+=( --buildType "$build_type" --buildPackage "$build_package" )
+  [[ -z "$bundle_id" ]] || remote_arguments+=( --bundleId "$bundle_id" )
   [[ -z "$dev_apis" ]] || remote_arguments+=( --devApis "$dev_apis" )
   [[ -z "$features" ]] || remote_arguments+=( --features "$features" )
 fi

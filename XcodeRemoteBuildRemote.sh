@@ -125,12 +125,18 @@ git check-ref-format --branch "$branch" >/dev/null 2>&1 || failure "Invalid bran
 # generated, untracked, and ignored item before returning to the caller.
 cleanup_done=0
 cleanup_status=0
+fastlane_log=""
+fastlane_failure_summary=""
 cleanup_repo() {
   [[ $cleanup_done -eq 0 ]] || return
   cleanup_done=1
   printf '\n=== Resetting remote repository ===\n'
   git reset --hard || cleanup_status=1
   git clean -ffdx || cleanup_status=1
+  if [[ -n "$fastlane_failure_summary" ]]; then
+    printf '\n=== Fastlane failure summary ===\n%s\n' "$fastlane_failure_summary"
+  fi
+  [[ -z "$fastlane_log" ]] || rm -f "$fastlane_log"
 }
 trap cleanup_repo EXIT
 trap 'exit 130' HUP INT TERM
@@ -281,10 +287,36 @@ else
       fi
       if [[ $main_status -eq 0 ]]; then
         fastlane_command+=( --verbose )
-        env FASTLANE_NOTIFICATION_SHIM="$notification_shim" "${fastlane_command[@]}" || {
+        fastlane_log="$(mktemp -t xcode-remote-fastlane-log)" || {
+          main_status=1
+          main_failure="Could not create Fastlane log"
+        }
+      fi
+      if [[ $main_status -eq 0 ]]; then
+        # Fastlane and its Xcode subprocesses must not consume the remainder
+        # of this runner, which is streamed over SSH standard input.
+        if ! env FASTLANE_NOTIFICATION_SHIM="$notification_shim" "${fastlane_command[@]}" >"$fastlane_log" 2>&1 </dev/null; then
           main_status=1
           main_failure="Fastlane lane failed: $lane"
-        }
+          # Cleanup output otherwise hides the real reason from Shortcuts'
+          # final 12-line alert. Keep the most useful Fastlane diagnostics.
+          # Keep only concrete Xcode/build errors. Broad matches such as
+          # "fastlane finished with errors" and Fastlane's release notes hide
+          # the useful failure in Shortcuts' small alert.
+          # Fastlane often reports its actual provisioning or signing problem
+          # as a [!] line; omit only its generic build-failure wrapper.
+          fastlane_failure_summary="$(grep -E '\[!\]' "$fastlane_log" | grep -Evi 'error building (the )?application|fastlane finished with errors' | tail -n 6 || true)"
+          [[ -n "$fastlane_failure_summary" ]] || fastlane_failure_summary="$(grep -Ei 'error:|fatal error:|xcodebuild: error:|command .* failed|code sign|provisioning profile|no profiles for|no signing certificate|unable to|undefined symbol|ld: |clang:|swiftc|\*\* (archive|build) failed \*\*' "$fastlane_log" | tail -n 8 || true)"
+          if [[ -z "$fastlane_failure_summary" ]]; then
+            # Some Xcode failures have no individually tagged error line.
+            # In that case the final lines immediately before Fastlane's
+            # failure marker are the best available context.
+            fastlane_failure_summary="$(sed -n '1,/fastlane finished with errors/p' "$fastlane_log" | tail -n 10)"
+          fi
+        fi
+        cat "$fastlane_log"
+        rm -f "$fastlane_log"
+        fastlane_log=""
         rm -f "$notification_shim"
       fi
       if [[ $main_status -eq 0 && "$lane" == "createAppForBrowserStack" ]]; then

@@ -23,6 +23,9 @@ RMB_IOS_IPA_DIR="App_ipa"
 RMB_ANDROID_PROJECT_DIR="AndroidApp"
 # Product flavor built by Android BrowserStack builds (assemble<flavor>Debug).
 RMB_ANDROID_BROWSERSTACK_FLAVOR="MyFlavor"
+# Absolute path on the Android build Mac to the Play Developer API
+# service-account JSON key. Required only for Play Store builds.
+RMB_ANDROID_PLAY_SERVICE_ACCOUNT_JSON="/secure/path/play-service-account.json"
 
 # --- Used by the Shortcut (Shortcut/Type-RunShellScript.sh) ---
 
