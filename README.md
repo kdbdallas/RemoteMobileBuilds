@@ -2,21 +2,23 @@
 
 Scripts and a macOS Shortcut for building or testing a mobile app (iOS and Android) on a remote Mac. You pick the platform, branch, and options in a few dialogs. The work then runs over SSH on a build Mac, and you get a success or failure alert when it finishes.
 
-The build machine needs no installed copy of these scripts. The local entry point streams the platform-specific runner to the remote host over SSH standard input and runs it there with `bash -s`. The runner is sent as a single block with its standard input redirected from `/dev/null`, so a command that reads standard input can't consume the rest of the script.
+The build machine needs no installed copy of these scripts. Each platform has its own local entry point, which streams the matching runner to the remote host over SSH standard input and runs it there with `bash -s`. The runner is sent as a single block with its standard input redirected from `/dev/null`, so a command that reads standard input can't consume the rest of the script.
 
 ## How it works
 
 ```
 Shortcut (Run Shell Script)
-  └─ XcodeRemoteBuild.sh <ssh-host> [options]        (local)
+  ├─ XcodeRemoteBuild.sh <ssh-host> [options]        (local, iOS)
+  │    └─ ssh <host> bash -s -- ... < runner          (remote)
+  │         ├─ XcodeRemoteBuildRemote.sh   iOS Fastlane build
+  │         └─ IOSUnitTestRemote.sh        iOS unit tests
+  └─ AndroidRemoteBuild.sh <ssh-host> [options]      (local, Android)
        └─ ssh <host> bash -s -- ... < runner          (remote)
-            ├─ XcodeRemoteBuildRemote.sh   iOS Fastlane build
-            ├─ IOSUnitTestRemote.sh        iOS unit tests
             ├─ AndroidRemoteBuildRemote.sh Android Gradle build
             └─ AndroidUnitTestRemote.sh    Android unit tests
 ```
 
-The Android runners share `AndroidCommon.sh`, which is streamed ahead of them. Run them through `XcodeRemoteBuild.sh`, not directly.
+The Android runners share `AndroidCommon.sh`, which is streamed ahead of them. Run them through `AndroidRemoteBuild.sh`, not directly.
 
 Each remote runner:
 
@@ -28,7 +30,7 @@ Each remote runner:
 
 Each runner reports its result on a `SUCCESS: ...` or `FAILURE: ...` line and through its exit status, which decides the Shortcut's alert. Test runners also print a `REPORT:` line with the report's location, and Play Store builds print a `PLAY_STORE_RESULT:` line with the publisher's response.
 
-If the result was delivered but the final reset failed, the runner prints a `WARNING: ...` line instead and exits with status 3. `XcodeRemoteBuild.sh` passes that status on, so a run that already published or uploaded a build isn't mistaken for a failed one and repeated. The next run resets the checkout again before it starts.
+If the result was delivered but the final reset failed, the runner prints a `WARNING: ...` line instead and exits with status 3. The entry point passes that status on, so a run that already published or uploaded a build isn't mistaken for a failed one and repeated. The next run resets the checkout again before it starts.
 
 > **Warning:** Every run discards uncommitted changes and untracked or ignored files in the remote checkout. Use a checkout on the build Mac that is dedicated to these builds.
 
@@ -36,7 +38,9 @@ If the result was delivered but the final reset failed, the runner prints a `WAR
 
 | File | Runs on | Purpose |
 | --- | --- | --- |
-| `XcodeRemoteBuild.sh` | Local Mac | Entry point. Validates arguments, picks the runner, and runs it on the SSH host. |
+| `XcodeRemoteBuild.sh` | Local Mac | iOS entry point. Validates arguments, picks the iOS runner, and runs it on the SSH host. |
+| `AndroidRemoteBuild.sh` | Local Mac | Android entry point. Validates arguments, picks the Android runner, and runs it on the SSH host. |
+| `LocalCommon.sh` | Local Mac | Code shared by the two entry points: loading `config.sh`, streaming the runner, and reporting its exit status. |
 | `XcodeRemoteBuildRemote.sh` | Remote Mac | iOS build: `pod install`, Bundler, then a Fastlane lane. Can upload the IPA to BrowserStack. |
 | `IOSUnitTestRemote.sh` | Remote Mac | iOS unit tests through `fastlane ios test`. Copies the HTML reports to the build folder. |
 | `AndroidRemoteBuildRemote.sh` | Remote Mac | Android build with the Gradle wrapper. Produces an APK or AAB. |
@@ -48,7 +52,8 @@ If the result was delivered but the final reset failed, the runner prints a `WAR
 ## Usage
 
 ```bash
-./XcodeRemoteBuild.sh <ssh-host> --repo <repository-name> --branch <branch> [options]
+./XcodeRemoteBuild.sh <ssh-host> --repo <repository-name> --branch <branch> [options]    # iOS
+./AndroidRemoteBuild.sh <ssh-host> --repo <repository-name> --branch <branch> [options]  # Android
 ```
 
 | Option | Applies to | Description |
@@ -56,7 +61,6 @@ If the result was delivered but the final reset failed, the runner prints a `WAR
 | `--type <name>` | All | Subdirectory under `~/Code` on the remote Mac, such as `work` or `personal`. |
 | `--repo <name>` | All | Repository directory name. Required. |
 | `--branch <branch>` | All | Branch to check out. Required. |
-| `--platform <ios\|android>` | All | Defaults to `ios`. |
 | `--shortCode <code>` | Builds, Android tests | App short code. iOS passes it to Fastlane as `name:<code>`. Android uses it as the Gradle flavor. Required for builds and Android unit tests. |
 | `--lane <lane>` | iOS build | Fastlane lane to run. Required for iOS builds. |
 | `--newApple` | iOS build | Use the "new" Fastlane environment. The default is "old". |
@@ -65,7 +69,7 @@ If the result was delivered but the final reset failed, the runner prints a `WAR
 | `--buildPackage <type>` | Android build | `APK` or `Bundle` (AAB). Required for Android builds. |
 | `--bundleId <id>` | Android Play Store | Android application ID to publish. Required with `--buildType 'Play Store'`; the package must be `Bundle`. |
 | `--devApis <true\|false>` | Android BrowserStack | Sets `-PAPI_DEV_ENABLED`. Defaults to `false`. |
-| `--unitTests` | Tests | Run the selected platform's unit tests instead of a build. |
+| `--unitTests` | Tests | Run unit tests instead of a build. |
 | `--devices <Latest\|All>` | iOS tests | Optional device selection passed to the test lane. |
 | `-h`, `--help` | All | Show the help text. |
 
@@ -89,7 +93,7 @@ iOS unit tests on the latest simulators:
 Android release bundle:
 
 ```bash
-./XcodeRemoteBuild.sh android-build-mac --platform android --type work \
+./AndroidRemoteBuild.sh android-build-mac --type work \
   --repo android-app --branch develop \
   --buildType Release --buildPackage Bundle --shortCode MyFlavor
 ```
@@ -97,7 +101,7 @@ Android release bundle:
 Android unit tests:
 
 ```bash
-./XcodeRemoteBuild.sh android-build-mac --unitTests --platform android --type work \
+./AndroidRemoteBuild.sh android-build-mac --unitTests --type work \
   --repo android-app --branch develop --shortCode MyFlavor
 ```
 
@@ -173,7 +177,7 @@ Then edit the values:
 | `RMB_IOS_REPO`, `RMB_ANDROID_REPO` | Shortcut | Repository directory names on the build Macs. |
 | `RMB_IOS_SHORTCODE_DEFAULT`, `RMB_ANDROID_SHORTCODE_DEFAULT` | Shortcut | Default short codes shown in the Shortcut's dialogs. |
 
-`XcodeRemoteBuild.sh` loads `config.sh` from its own folder. Each run requires only the settings its runner uses, so an Android-only setup can leave the iOS settings empty:
+Both entry points load `config.sh` from their own folder. Each run requires only the settings its runner uses, so an Android-only setup can leave the iOS settings empty:
 
 | Run | Required settings |
 | --- | --- |
@@ -181,7 +185,7 @@ Then edit the values:
 | iOS unit tests | `RMB_BUILDS_HOST`, `RMB_BUILDS_DIR`, `RMB_FASTLANE_SELECTOR`, `RMB_GDRIVE_EMAIL` |
 | Android build or unit tests | `RMB_BUILDS_HOST`, `RMB_BUILDS_DIR`, `RMB_ANDROID_PROJECT_DIR` |
 
-It adds `export` lines for those settings to the start of the script it streams over SSH, and exports the Play service-account key path as `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` when configured. Play Store builds stop with an error if that path is empty. The remote runners also check that those settings are present.
+The entry point adds `export` lines for those settings to the start of the script it streams over SSH. `AndroidRemoteBuild.sh` also exports the Play service-account key path as `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` when configured. Play Store builds stop with an error if that path is empty. The remote runners also check that those settings are present.
 
 ## Setup
 
@@ -202,7 +206,7 @@ It adds `export` lines for those settings to the start of the script it streams 
 
 ### Code signing and the Keychain
 
-iOS signing often needs the remote login Keychain unlocked. To unlock it, set `XCODE_REMOTE_KEYCHAIN_PASSWORD` in the local environment before running `XcodeRemoteBuild.sh`. The password is sent as the first line of the SSH standard input. It never appears in the SSH command line or in process arguments. The runner unsets it after the unlock, so Fastlane and other child processes never see it. Only iOS builds use the password. `XcodeRemoteBuild.sh` doesn't send it for test runs or Android builds, even if it's set.
+iOS signing often needs the remote login Keychain unlocked. To unlock it, set `XCODE_REMOTE_KEYCHAIN_PASSWORD` in the local environment before running `XcodeRemoteBuild.sh`. The password is sent as the first line of the SSH standard input. It never appears in the SSH command line or in process arguments. The runner unsets it after the unlock, so Fastlane and other child processes never see it. Only iOS builds use the password. `XcodeRemoteBuild.sh` doesn't send it for test runs, even if it's set, and `AndroidRemoteBuild.sh` never sends it.
 
 The Shortcut reads this password from the local login Keychain, so it is never stored in the script. Store it once in Terminal; `-w` at the end makes `security` prompt for the password:
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Executed on the Android build Mac by XcodeRemoteBuild.sh for Android builds.
+# Executed on the Android build Mac by AndroidRemoteBuild.sh for Android builds.
 
-# XcodeRemoteBuild.sh streams AndroidCommon.sh ahead of this script.
+# AndroidRemoteBuild.sh streams AndroidCommon.sh ahead of this script.
 if ! declare -F prepare_android_checkout >/dev/null; then
-  printf 'FAILURE: Run this through XcodeRemoteBuild.sh, which supplies AndroidCommon.sh\n' >&2
+  printf 'FAILURE: Run this through AndroidRemoteBuild.sh, which supplies AndroidCommon.sh\n' >&2
   exit 1
 fi
 

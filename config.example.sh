@@ -4,7 +4,7 @@
 #   cp config.example.sh config.sh
 # config.sh is ignored by Git, so these values stay on your machine.
 
-# --- Sent to the remote runners by XcodeRemoteBuild.sh ---
+# --- Sent to the remote runners by XcodeRemoteBuild.sh and AndroidRemoteBuild.sh ---
 
 # SSH host that receives finished builds and test reports. The build Mac must
 # be able to reach it with key-based SSH.

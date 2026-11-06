@@ -8,7 +8,8 @@ end run
 APPLESCRIPT
   exit 1
 fi
-buildScript="$RMB_DIR/XcodeRemoteBuild.sh"
+iosScript="$RMB_DIR/XcodeRemoteBuild.sh"
+androidScript="$RMB_DIR/AndroidRemoteBuild.sh"
 typeArguments=()
 [[ -n "${RMB_REPO_TYPE:-}" ]] && typeArguments=(--type "$RMB_REPO_TYPE")
 
@@ -26,7 +27,7 @@ if [[ "$unitTests" == "Yes" ]]; then
     branch=$(osascript -e 'text returned of (display dialog "Branch" default answer "" buttons {"Cancel", "Continue"} default button "Continue")') || exit 0
     [[ "$branch" == "Cancel" ]] && exit 0
     buildCommand=(
-      "$buildScript"
+      "$iosScript"
       "$RMB_IOS_HOST"
       --unitTests
       "${typeArguments[@]}"
@@ -45,10 +46,9 @@ APPLESCRIPT
     branch=$(osascript -e 'text returned of (display dialog "Branch" default answer "" buttons {"Cancel", "Continue"} default button "Continue")') || exit 0
     [[ "$branch" == "Cancel" ]] && exit 0
     buildCommand=(
-      "$buildScript"
+      "$androidScript"
       "$RMB_ANDROID_HOST"
       --unitTests
-      --platform android
       "${typeArguments[@]}"
       --repo "$RMB_ANDROID_REPO"
       --branch "$branch"
@@ -84,7 +84,7 @@ APPLESCRIPT
   }
   export XCODE_REMOTE_KEYCHAIN_PASSWORD
   buildCommand=(
-    "$buildScript"
+    "$iosScript"
     "$RMB_IOS_HOST"
     "${typeArguments[@]}"
     --repo "$RMB_IOS_REPO"
@@ -136,9 +136,8 @@ APPLESCRIPT
   [[ "$features" == "Cancel" ]] && exit 0
 
   buildCommand=(
-    "$buildScript"
+    "$androidScript"
     "$RMB_ANDROID_HOST"
-    --platform android
     "${typeArguments[@]}"
     --repo "$RMB_ANDROID_REPO"
     --branch "$branch"
