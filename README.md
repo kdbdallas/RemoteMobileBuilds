@@ -26,6 +26,8 @@ Each remote runner:
 
 Each runner reports its result on a `SUCCESS: ...` or `FAILURE: ...` line and through its exit status, which decides the Shortcut's alert. Test runners also print a `REPORT:` line with the report's location, and Play Store builds print a `PLAY_STORE_RESULT:` line with the publisher's response.
 
+If the result was delivered but the final reset failed, the runner prints a `WARNING: ...` line instead and exits with status 3. `XcodeRemoteBuild.sh` passes that status on, so a run that already published or uploaded a build isn't mistaken for a failed one and repeated. The next run resets the checkout again before it starts.
+
 > **Warning:** Every run discards uncommitted changes and untracked or ignored files in the remote checkout. Use a checkout on the build Mac that is dedicated to these builds.
 
 ## Files
@@ -127,7 +129,6 @@ Android unit tests:
 - Finds the Android SDK through `ANDROID_HOME`, then `ANDROID_SDK_ROOT`, then `~/Library/Android/sdk`.
 - Runs `assemble<shortCode><buildType>` for APKs or `bundle<shortCode><buildType>` for AABs. `BrowserStack` builds run `assemble<shortCode>Debug -Pbrowserstack=true` and always produce an APK, whatever `--buildPackage` says. Play Store builds run `bundle<shortCode>Release`.
 - When Gradle fails, prints its `What went wrong` block after cleanup so the cause appears in the Shortcut's 12-line alert.
-- Fails if the checkout can't be reset or `local.properties` can't be restored after the build. The build has already been delivered by then, and the `FAILURE:` line says so.
 - Picks the newest artifact under `app/build/outputs` whose path contains the short code, and renames it to `<ticket>-<shortCode>.<apk|aab>`.
 - Uploads `BrowserStack` builds to BrowserStack, publishes Play Store bundles to the production track with `tools/play_release.py`, and copies other builds to the build folder. The Shortcut alert includes the publisher result.
 - Play Store builds require `tools/play_release.py` on the selected Android-app branch and a service-account key path configured through `RMB_ANDROID_PLAY_SERVICE_ACCOUNT_JSON`; the key itself remains on the Android build Mac.
@@ -217,4 +218,4 @@ When you run it, the Shortcut asks for:
 3. For iOS builds: the Apple account (Old or New), the branch, the lane (`createAppForBrowserStack`, `updateAppForStore`, or `createLaunchImages`), the short code, the Dev APIs setting (`createAppForBrowserStack` only), and optional feature flags. Choosing `true` for Dev APIs adds `apiDev:true` to the feature flags.
 4. For Android builds: the branch, the build type, the package type, the Dev APIs setting (BrowserStack builds only), the short code, and optional Gradle feature flags. Play Store builds require Bundle, then ask for a Bundle ID defaulting to `com.goeshow.<shortCode>` and publish the completed release bundle to production.
 
-On success, it shows the runner's `SUCCESS:` line; Play Store builds also show the publisher result. Unit-test runs show a fixed message that points to the timestamped Builds folder. That alert means the tests finished and the report was delivered, not that they passed, so check the report. The exact location is on the `REPORT:` line in the script's output. On failure, it shows a critical alert with the lane or build type, the branch, and the last 12 lines of output.
+On success, it shows the runner's `SUCCESS:` line; Play Store builds also show the publisher result. Unit-test runs show a fixed message that points to the timestamped Builds folder. That alert means the tests finished and the report was delivered, not that they passed, so check the report. The exact location is on the `REPORT:` line in the script's output. If the result was delivered but the remote reset failed (exit status 3), it shows a warning alert with the `WARNING:` line and any `REPORT:` or publisher result. Don't run the job again in that case. On failure, it shows a critical alert with the lane or build type, the branch, and the last 12 lines of output.

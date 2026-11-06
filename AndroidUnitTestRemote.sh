@@ -14,6 +14,14 @@ failure() {
   exit 1
 }
 
+# Exit status 3 means the result was delivered but the checkout was not reset.
+# XcodeRemoteBuild.sh and the Shortcut report it separately from a failure, so
+# that nobody repeats a run that already published or uploaded a build.
+delivered_but_not_reset() {
+  printf 'WARNING: %s, but the remote repository could not be fully reset. It does not need to run again.\n' "$1" >&2
+  exit 3
+}
+
 # XcodeRemoteBuild.sh exports these from config.sh ahead of this script.
 for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_ANDROID_PROJECT_DIR; do
   [[ -n "${!config_name:-}" ]] || failure "$config_name is not set; run this through XcodeRemoteBuild.sh with config.sh filled in"
@@ -214,5 +222,5 @@ copy_report_directory "$report_directory" || failure "Could not copy and verify 
 
 cleanup_repo
 trap - EXIT HUP INT TERM
-[[ $cleanup_status -eq 0 ]] || failure "Could not fully reset repository after the unit-test run"
+[[ $cleanup_status -eq 0 ]] || delivered_but_not_reset "Report saved"
 printf 'SUCCESS: Tests Ran\n'

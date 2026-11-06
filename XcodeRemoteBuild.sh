@@ -290,8 +290,10 @@ else
 fi
 ssh_status=$?
 
-if [[ $ssh_status -ne 0 ]]; then
-  printf 'FAILURE: Remote run failed (SSH or Fastlane exited with status %d).\n' "$ssh_status" >&2
+# Status 3 means the result was delivered and only the reset failed. The runner
+# has already said so, and a FAILURE line here would invite a repeat run.
+if [[ $ssh_status -ne 0 && $ssh_status -ne 3 ]]; then
+  printf 'FAILURE: Remote run failed (SSH or the remote runner exited with status %d).\n' "$ssh_status" >&2
 fi
 
 exit "$ssh_status"

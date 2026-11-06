@@ -174,6 +174,19 @@ APPLESCRIPT
   exit 0
 fi
 
+# Status 3 means the build or report was delivered and only the remote reset
+# failed. A failure alert here could get a published release run a second time.
+if (( exitStatus == 3 )); then
+  warningMessage=$(printf '%s\n' "$output" | sed -n -e 's/^PLAY_STORE_RESULT: //p' -e '/^REPORT:/p' -e '/^WARNING:/p')
+  osascript - "$warningMessage" <<'APPLESCRIPT'
+on run argv
+  display alert "Delivered, but Cleanup Failed" message (item 1 of argv) as warning
+end run
+APPLESCRIPT
+  printf '%s\n' "$output"
+  exit "$exitStatus"
+fi
+
 label="$platform"
 if [[ "$unitTests" == "Yes" ]]; then
   label="Lane: Unit Tests"

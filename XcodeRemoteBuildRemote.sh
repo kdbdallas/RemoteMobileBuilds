@@ -38,6 +38,14 @@ failure() {
   exit 1
 }
 
+# Exit status 3 means the result was delivered but the checkout was not reset.
+# XcodeRemoteBuild.sh and the Shortcut report it separately from a failure, so
+# that nobody repeats a run that already published or uploaded a build.
+delivered_but_not_reset() {
+  printf 'WARNING: %s, but the remote repository could not be fully reset. It does not need to run again.\n' "$1" >&2
+  exit 3
+}
+
 # XcodeRemoteBuild.sh exports these from config.sh ahead of this script.
 for config_name in RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL RMB_IOS_IPA_DIR; do
   [[ -n "${!config_name:-}" ]] || failure "$config_name is not set; run this through XcodeRemoteBuild.sh with config.sh filled in"
@@ -356,11 +364,11 @@ fi
 cleanup_repo
 trap - EXIT HUP INT TERM
 
-if [[ $cleanup_status -ne 0 ]]; then
-  failure "Could not fully reset repository after the Fastlane run"
-fi
+# Check the lane first, so a reset problem cannot hide why the run failed.
 if [[ $main_status -ne 0 ]]; then
+  [[ $cleanup_status -eq 0 ]] || main_failure="$main_failure (the remote repository also could not be fully reset)"
   failure "$main_failure"
 fi
+[[ $cleanup_status -eq 0 ]] || delivered_but_not_reset "Fastlane lane $lane completed"
 
 printf 'SUCCESS: Fastlane lane %s completed successfully.\n' "$lane"
