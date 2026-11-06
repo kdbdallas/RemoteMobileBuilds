@@ -123,10 +123,12 @@ Android unit tests:
 - Builds the Gradle project in `<repo>/$RMB_ANDROID_PROJECT_DIR`.
 - Preserves the ignored `local.properties` file across both cleans so machine-local
   settings such as `KEYSTORE_DIR` remain available for this build and later runs.
+  If the restore fails, the run prints where the backup copy is.
 - Selects Java 17 or 21. It tries `JAVA_HOME`, then `/usr/libexec/java_home`, then the JBR bundled with Android Studio, then Homebrew, jenv, and SDKMAN installs.
 - Finds the Android SDK through `ANDROID_HOME`, then `ANDROID_SDK_ROOT`, then `~/Library/Android/sdk`.
 - Runs `assemble<shortCode><buildType>` for APKs or `bundle<shortCode><buildType>` for AABs. `BrowserStack` builds run `assemble<shortCode>Debug -Pbrowserstack=true` and always produce an APK, whatever `--buildPackage` says. Play Store builds run `bundle<shortCode>Release`.
 - When Gradle fails, prints its `What went wrong` block after cleanup so the cause appears in the Shortcut's 12-line alert.
+- Fails if the checkout can't be reset or `local.properties` can't be restored after the build. The build has already been delivered by then, and the `FAILURE:` line says so.
 - Picks the newest artifact under `app/build/outputs` whose path contains the short code, and renames it to `<ticket>-<shortCode>.<apk|aab>`.
 - Uploads `BrowserStack` builds to BrowserStack, publishes Play Store bundles to the production track with `tools/play_release.py`, and copies other builds to the build folder. The Shortcut alert includes the publisher result.
 - Play Store builds require `tools/play_release.py` on the selected Android-app branch and a service-account key path configured through `RMB_ANDROID_PLAY_SERVICE_ACCOUNT_JSON`; the key itself remains on the Android build Mac.

@@ -101,7 +101,6 @@ report_directory="$project_path/app/build/reports/tests/test${short_code}DebugUn
 [[ -d "$repo_path" ]] || failure "Could not find repository: $repo_path"
 [[ -d "$project_path" ]] || failure "Could not find Android project: $project_path"
 
-report_transferred=0
 copy_report_directory() {
   local source_directory="$1" report_timestamp report_destination source_html_count remote_html_count remote_report_host
 
@@ -116,7 +115,6 @@ copy_report_directory() {
   [[ "$remote_html_count" == "$source_html_count" ]] || return 1
   ssh "$RMB_BUILDS_HOST" "test -s $(printf '%q' "$report_destination/index.html")" || return 1
   remote_report_host="$(ssh "$RMB_BUILDS_HOST" 'hostname' 2>/dev/null | tr -d '\n')" || return 1
-  report_transferred=1
   printf 'REPORT: %s:%s (%s HTML reports)\n' "$remote_report_host" "$report_destination" "$source_html_count"
 }
 
@@ -148,8 +146,12 @@ cleanup_repo() {
   git reset --hard || cleanup_status=1
   git clean -ffdx || cleanup_status=1
   if [[ -n "$local_properties_backup" ]]; then
-    restore_local_properties || cleanup_status=1
-    rm -f "$local_properties_backup"
+    if restore_local_properties; then
+      rm -f "$local_properties_backup"
+    else
+      cleanup_status=1
+      printf 'Could not restore local.properties; a copy remains at %s\n' "$local_properties_backup" >&2
+    fi
   fi
   if [[ -n "$test_failure_summary" ]]; then
     printf '\n=== Android unit-test failure summary ===\n%s\n' "$test_failure_summary"

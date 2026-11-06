@@ -169,8 +169,12 @@ cleanup_repo() {
   git reset --hard || cleanup_status=1
   git clean -ffdx || cleanup_status=1
   if [[ -n "$local_properties_backup" ]]; then
-    restore_local_properties || cleanup_status=1
-    rm -f "$local_properties_backup"
+    if restore_local_properties; then
+      rm -f "$local_properties_backup"
+    else
+      cleanup_status=1
+      printf 'Could not restore local.properties; a copy remains at %s\n' "$local_properties_backup" >&2
+    fi
   fi
 }
 trap cleanup_repo EXIT
@@ -282,7 +286,7 @@ if [[ "$build_type" == "BrowserStack" ]]; then
   curl --fail --show-error -u "$access_key" -X POST \
     'https://api-cloud.browserstack.com/app-live/upload' \
     -F "file=@$renamed_artifact_path" || failure "Could not upload build to BrowserStack"
-  printf 'SUCCESS: Uploaded to BrowserStack\n'
+  success_message="Uploaded to BrowserStack"
 elif [[ "$build_type" == "Play Store" ]]; then
   release_tool="tools/play_release.py"
   [[ -f "$repo_path/$release_tool" ]] || failure "Could not find Play Store release tool: $repo_path/$release_tool"
@@ -303,9 +307,16 @@ elif [[ "$build_type" == "Play Store" ]]; then
     failure "Google Play publishing failed"
   fi
   printf 'PLAY_STORE_RESULT: %s\n' "$play_release_output"
-  printf 'SUCCESS: Published to Play Store\n'
+  success_message="Published to Play Store"
 else
   printf '\n=== Saving %s to the build folder ===\n' "$(basename "$renamed_artifact_path")"
   scp "$renamed_artifact_path" "$RMB_BUILDS_HOST:$RMB_BUILDS_DIR/" || failure "Could not copy build to $RMB_BUILDS_HOST"
-  printf 'SUCCESS: Saved to Build Folder\n'
+  success_message="Saved to Build Folder"
 fi
+
+cleanup_repo
+trap - EXIT HUP INT TERM
+# The build has already been delivered here. Say so, so that a cleanup problem
+# is not mistaken for a failed release and published again.
+[[ $cleanup_status -eq 0 ]] || failure "$success_message, but could not fully reset repository after the build"
+printf 'SUCCESS: %s\n' "$success_message"

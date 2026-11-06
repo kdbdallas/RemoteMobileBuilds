@@ -250,7 +250,6 @@ else
   [[ -z "$dev_apis" ]] || remote_arguments+=( --devApis "$dev_apis" )
   [[ -z "$features" ]] || remote_arguments+=( --features "$features" )
 fi
-ssh_arguments=( "$host" bash -s -- "${remote_arguments[@]}" )
 # Only the iOS build runner unlocks the Keychain and clears the password. Keep
 # it off the remote host for every other run.
 if [[ $unit_tests -eq 1 || "$platform" != "ios" ]]; then
