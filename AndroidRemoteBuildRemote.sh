@@ -78,8 +78,8 @@ configure_java() {
 configure_android_sdk() {
   local candidate
 
-  # local.properties is ignored and may be removed by the cleanup trap. Set
-  # the SDK path explicitly so both builds and tests work in an SSH session.
+  # local.properties may not exist on the build Mac. Set the SDK path
+  # explicitly so both builds and tests work in an SSH session.
   for candidate in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" "$HOME/Library/Android/sdk"; do
     [[ -n "$candidate" && -d "$candidate/platforms" ]] || continue
     export ANDROID_HOME="$candidate"
@@ -140,15 +140,18 @@ project_path="$repo_path/$RMB_ANDROID_PROJECT_DIR"
 [[ -d "$project_path" ]] || failure "Could not find Android project: $project_path"
 
 # local.properties is deliberately ignored and holds machine-local paths such
-# as KEYSTORE_DIR. Preserve it outside the checkout so the required clean can
+# as KEYSTORE_DIR. Preserve it outside the checkout so the required cleans can
 # still remove every generated build artifact without losing configuration for
-# the next run.
+# this run or the next one.
 local_properties_path="$project_path/local.properties"
 local_properties_backup=""
 if [[ -f "$local_properties_path" ]]; then
   local_properties_backup="$(mktemp -t remote-mobile-local-properties)" || failure "Could not back up local.properties"
   cp "$local_properties_path" "$local_properties_backup" || failure "Could not back up local.properties"
 fi
+restore_local_properties() {
+  [[ -z "$local_properties_backup" ]] || cp "$local_properties_backup" "$local_properties_path"
+}
 
 cd "$repo_path" || failure "Could not enter repository: $repo_path"
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || failure "Repository is not a Git work tree: $repo_path"
@@ -166,17 +169,21 @@ cleanup_repo() {
   git reset --hard || cleanup_status=1
   git clean -ffdx || cleanup_status=1
   if [[ -n "$local_properties_backup" ]]; then
-    cp "$local_properties_backup" "$local_properties_path" || cleanup_status=1
+    restore_local_properties || cleanup_status=1
     rm -f "$local_properties_backup"
   fi
 }
 trap cleanup_repo EXIT
 trap 'exit 130' HUP INT TERM
 
+printf '=== Preparing remote repository ===\n'
+git reset --hard || failure "Could not reset remote repository before checkout"
+git clean -ffdx || failure "Could not clean remote repository before checkout"
 printf '=== Checking out branch: %s ===\n' "$branch"
 git fetch origin "+refs/heads/$branch:refs/remotes/origin/$branch" || failure "Could not fetch branch from origin: $branch"
 git checkout -B "$branch" "origin/$branch" || failure "Could not check out branch: $branch"
 cd "$project_path" || failure "Could not enter Android project: $project_path"
+restore_local_properties || failure "Could not restore local.properties"
 [[ -x ./gradlew ]] || failure "Could not find executable Gradle wrapper: $project_path/gradlew"
 configure_java || failure "Could not find a Java runtime on the remote Mac"
 printf '=== Using Java: %s ===\n' "$JAVA_HOME"

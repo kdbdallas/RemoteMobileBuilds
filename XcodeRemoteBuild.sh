@@ -45,7 +45,8 @@ is taken from your normal SSH configuration.
 
 To unlock the remote login Keychain for signing, set
 XCODE_REMOTE_KEYCHAIN_PASSWORD in your local environment before running this
-script. It is sent to the runner over SSH standard input, not as an argument.
+script. It is sent to the runner over SSH standard input, not as an argument,
+and only for iOS builds.
 EOF
 }
 
@@ -169,11 +170,13 @@ if [[ $unit_tests -eq 1 ]]; then
     ios)
       [[ -z "$devices" || "$devices" == "Latest" || "$devices" == "All" ]] || fail "--devices must be Latest or All"
       remote_runner="$ios_test_remote_runner"
+      required_settings=( RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL )
       ;;
     android)
       [[ -z "$devices" ]] || fail "--devices is only available for iOS unit tests"
       [[ -n "$short_code" ]] || fail "--shortCode is required for Android unit tests"
       remote_runner="$android_test_remote_runner"
+      required_settings=( RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_ANDROID_PROJECT_DIR )
       ;;
     *) fail "--platform must be ios or android" ;;
   esac
@@ -183,6 +186,7 @@ else
     ios)
       [[ -n "$lane" ]] || fail "--lane is required"
       remote_runner="$ios_remote_runner"
+      required_settings=( RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL RMB_IOS_IPA_DIR )
       ;;
     android)
       [[ "$build_type" == "Release" || "$build_type" == "Debug" || "$build_type" == "BrowserStack" || "$build_type" == "Play Store" ]] || fail "--buildType must be Release, Debug, BrowserStack, or Play Store"
@@ -193,6 +197,7 @@ else
       fi
       [[ -z "$dev_apis" || "$dev_apis" == "true" || "$dev_apis" == "false" ]] || fail "--devApis must be true or false"
       remote_runner="$android_remote_runner"
+      required_settings=( RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_ANDROID_PROJECT_DIR )
       ;;
     *) fail "--platform must be ios or android" ;;
   esac
@@ -202,7 +207,7 @@ fi
 [[ -f "$config_file" ]] || fail "Could not find $config_file (copy config.example.sh to config.sh and fill it in)"
 # shellcheck source=config.example.sh
 source "$config_file" || fail "Could not load $config_file"
-for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL RMB_IOS_IPA_DIR RMB_ANDROID_PROJECT_DIR; do
+for config_name in "${required_settings[@]}"; do
   [[ -n "${!config_name:-}" ]] || fail "$config_name is not set in $config_file"
   [[ "${!config_name}" != *$'\n'* ]] || fail "$config_name must not contain a newline"
 done
@@ -214,7 +219,7 @@ fi
 # Prepend the settings the remote runners need to the streamed script, so
 # nothing machine-specific is stored in the runners themselves.
 remote_preamble=""
-for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL RMB_IOS_IPA_DIR RMB_ANDROID_PROJECT_DIR; do
+for config_name in "${required_settings[@]}"; do
   printf -v config_line 'export %s=%q\n' "$config_name" "${!config_name}"
   remote_preamble+="$config_line"
 done
@@ -246,6 +251,11 @@ else
   [[ -z "$features" ]] || remote_arguments+=( --features "$features" )
 fi
 ssh_arguments=( "$host" bash -s -- "${remote_arguments[@]}" )
+# Only the iOS build runner unlocks the Keychain and clears the password. Keep
+# it off the remote host for every other run.
+if [[ $unit_tests -eq 1 || "$platform" != "ios" ]]; then
+  unset XCODE_REMOTE_KEYCHAIN_PASSWORD
+fi
 if [[ -n "${XCODE_REMOTE_KEYCHAIN_PASSWORD:-}" ]]; then
   # Feed the password before the remote script; it is never placed in the SSH
   # command or argument list. The small remote Bash wrapper consumes that line

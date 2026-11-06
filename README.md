@@ -19,10 +19,10 @@ Shortcut (Run Shell Script)
 Each remote runner:
 
 1. Resolves the repository at `~/Code/<type>/<repo>`, or `~/Code/<repo>` when `--type` is omitted.
-2. Fetches the requested branch from `origin` and moves the local branch to the fetched commit, so rebased or force-pushed branches build correctly. The iOS runners and the Android unit-test runner first reset and clean the checkout (`git reset --hard`, `git clean -ffdx`). The Android build runner doesn't.
+2. Resets and cleans the checkout (`git reset --hard`, `git clean -ffdx`), then fetches the requested branch from `origin` and moves the local branch to the fetched commit, so rebased or force-pushed branches build correctly.
 3. Runs the build or tests.
 4. Delivers the result: it uploads the build to BrowserStack, publishes it to Google Play, copies it to the build folder, or copies the test report there. The runner has no delivery step for iOS lanes other than `createAppForBrowserStack`.
-5. Resets and cleans the checkout. A trap does this whether the run succeeds or fails.
+5. Resets and cleans the checkout again. A trap does this whether the run succeeds or fails.
 
 Each runner reports its result on a `SUCCESS: ...` or `FAILURE: ...` line and through its exit status, which decides the Shortcut's alert. Test runners also print a `REPORT:` line with the report's location, and Play Store builds print a `PLAY_STORE_RESULT:` line with the publisher's response.
 
@@ -121,8 +121,8 @@ Android unit tests:
 ### Android builds (`AndroidRemoteBuildRemote.sh`)
 
 - Builds the Gradle project in `<repo>/$RMB_ANDROID_PROJECT_DIR`.
-- Preserves the ignored `local.properties` file across cleanup so machine-local
-  settings such as `KEYSTORE_DIR` remain available for later builds.
+- Preserves the ignored `local.properties` file across both cleans so machine-local
+  settings such as `KEYSTORE_DIR` remain available for this build and later runs.
 - Selects Java 17 or 21. It tries `JAVA_HOME`, then `/usr/libexec/java_home`, then the JBR bundled with Android Studio, then Homebrew, jenv, and SDKMAN installs.
 - Finds the Android SDK through `ANDROID_HOME`, then `ANDROID_SDK_ROOT`, then `~/Library/Android/sdk`.
 - Runs `assemble<shortCode><buildType>` for APKs or `bundle<shortCode><buildType>` for AABs. `BrowserStack` builds run `assemble<shortCode>Debug -Pbrowserstack=true` and always produce an APK, whatever `--buildPackage` says. Play Store builds run `bundle<shortCode>Release`.
@@ -138,7 +138,7 @@ Android unit tests:
 - Copies `app/build/reports/tests/test<shortCode>DebugUnitTest` to `RMB_BUILDS_DIR/Android/<timestamp>/<branch>/`. It then checks that the number of HTML files matches and that `index.html` isn't empty.
 - If tests fail but a report exists, the report is delivered and the run still ends with `SUCCESS: Tests Ran`. The test failures are recorded in the report.
 - If there's no report, the run fails and prints a short failure summary after cleanup.
-- Doesn't preserve `local.properties`. A test run deletes it from the checkout, so settings such as `KEYSTORE_DIR` must be restored before the next build that needs them.
+- Preserves `local.properties` across both cleans, the same way as Android builds.
 
 ### Artifact naming
 
@@ -168,7 +168,15 @@ Then edit the values:
 | `RMB_IOS_REPO`, `RMB_ANDROID_REPO` | Shortcut | Repository directory names on the build Macs. |
 | `RMB_IOS_SHORTCODE_DEFAULT`, `RMB_ANDROID_SHORTCODE_DEFAULT` | Shortcut | Default short codes shown in the Shortcut's dialogs. |
 
-`XcodeRemoteBuild.sh` loads `config.sh` from its own folder. Every run requires the first six settings in the table, `RMB_BUILDS_HOST` through `RMB_ANDROID_PROJECT_DIR`, even if the selected runner doesn't use them, so an Android-only setup still needs values for the iOS settings. It adds `export` lines for those settings to the start of the script it streams over SSH, and exports the Play service-account key path as `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` when configured. Play Store builds stop with an error if that path is empty. The remote runners also check the settings they need when run directly.
+`XcodeRemoteBuild.sh` loads `config.sh` from its own folder. Each run requires only the settings its runner uses, so an Android-only setup can leave the iOS settings empty:
+
+| Run | Required settings |
+| --- | --- |
+| iOS build | `RMB_FASTLANE_SELECTOR`, `RMB_GDRIVE_EMAIL`, `RMB_IOS_IPA_DIR` |
+| iOS unit tests | `RMB_BUILDS_HOST`, `RMB_BUILDS_DIR`, `RMB_FASTLANE_SELECTOR`, `RMB_GDRIVE_EMAIL` |
+| Android build or unit tests | `RMB_BUILDS_HOST`, `RMB_BUILDS_DIR`, `RMB_ANDROID_PROJECT_DIR` |
+
+It adds `export` lines for those settings to the start of the script it streams over SSH, and exports the Play service-account key path as `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` when configured. Play Store builds stop with an error if that path is empty. The remote runners also check the settings they need when run directly.
 
 ## Setup
 
@@ -189,7 +197,7 @@ Then edit the values:
 
 ### Code signing and the Keychain
 
-iOS signing often needs the remote login Keychain unlocked. To unlock it, set `XCODE_REMOTE_KEYCHAIN_PASSWORD` in the local environment before running `XcodeRemoteBuild.sh`. The password is sent as the first line of the SSH standard input. It never appears in the SSH command line or in process arguments. The iOS build runner unsets it after the unlock, so Fastlane and other child processes never see it. The other runners don't use the password or unset it, so leave it unset for test runs and Android builds.
+iOS signing often needs the remote login Keychain unlocked. To unlock it, set `XCODE_REMOTE_KEYCHAIN_PASSWORD` in the local environment before running `XcodeRemoteBuild.sh`. The password is sent as the first line of the SSH standard input. It never appears in the SSH command line or in process arguments. The runner unsets it after the unlock, so Fastlane and other child processes never see it. Only iOS builds use the password. `XcodeRemoteBuild.sh` doesn't send it for test runs or Android builds, even if it's set.
 
 The Shortcut reads this password from the local login Keychain, so it is never stored in the script. Store it once in Terminal; `-w` at the end makes `security` prompt for the password:
 

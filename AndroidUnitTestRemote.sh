@@ -57,8 +57,8 @@ configure_java() {
 configure_android_sdk() {
   local candidate
 
-  # local.properties is intentionally removed by the repository cleanup, so
-  # Gradle must get its SDK location from the remote machine's environment.
+  # local.properties may not exist on the build Mac, so Gradle must be able to
+  # get its SDK location from the remote machine's environment.
   for candidate in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" "$HOME/Library/Android/sdk"; do
     [[ -n "$candidate" && -d "$candidate/platforms" ]] || continue
     export ANDROID_HOME="$candidate"
@@ -124,6 +124,19 @@ cd "$repo_path" || failure "Could not enter repository: $repo_path"
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || failure "Repository is not a Git work tree: $repo_path"
 git check-ref-format --branch "$branch" >/dev/null 2>&1 || failure "Invalid branch name: $branch"
 
+# local.properties is deliberately ignored and holds machine-local paths such
+# as KEYSTORE_DIR. Preserve it outside the checkout so the required cleans do
+# not lose configuration for this run or later builds.
+local_properties_path="$project_path/local.properties"
+local_properties_backup=""
+if [[ -f "$local_properties_path" ]]; then
+  local_properties_backup="$(mktemp -t remote-mobile-local-properties)" || failure "Could not back up local.properties"
+  cp "$local_properties_path" "$local_properties_backup" || failure "Could not back up local.properties"
+fi
+restore_local_properties() {
+  [[ -z "$local_properties_backup" ]] || cp "$local_properties_backup" "$local_properties_path"
+}
+
 cleanup_done=0
 cleanup_status=0
 test_log=""
@@ -134,6 +147,10 @@ cleanup_repo() {
   printf '\n=== Resetting remote repository ===\n'
   git reset --hard || cleanup_status=1
   git clean -ffdx || cleanup_status=1
+  if [[ -n "$local_properties_backup" ]]; then
+    restore_local_properties || cleanup_status=1
+    rm -f "$local_properties_backup"
+  fi
   if [[ -n "$test_failure_summary" ]]; then
     printf '\n=== Android unit-test failure summary ===\n%s\n' "$test_failure_summary"
   fi
@@ -152,6 +169,7 @@ git checkout -B "$branch" "origin/$branch" || failure "Could not check out branc
 git branch --set-upstream-to="origin/$branch" "$branch" || failure "Could not set upstream branch: origin/$branch"
 
 cd "$project_path" || failure "Could not enter Android project: $project_path"
+restore_local_properties || failure "Could not restore local.properties"
 [[ -x ./gradlew ]] || failure "Could not find executable Gradle wrapper: $project_path/gradlew"
 configure_java || failure "Could not find a Java runtime on the remote Mac"
 printf '=== Using Java: %s ===\n' "$JAVA_HOME"
