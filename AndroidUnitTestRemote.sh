@@ -146,7 +146,7 @@ printf '=== Preparing remote repository ===\n'
 git reset --hard || failure "Could not reset remote repository before checkout"
 git clean -ffdx || failure "Could not clean remote repository before checkout"
 printf '=== Checking out branch: %s ===\n' "$branch"
-git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch" || failure "Could not fetch branch from origin: $branch"
+git fetch origin "+refs/heads/$branch:refs/remotes/origin/$branch" || failure "Could not fetch branch from origin: $branch"
 git show-ref --verify --quiet "refs/remotes/origin/$branch" || failure "Could not find remote branch: origin/$branch"
 git checkout -B "$branch" "origin/$branch" || failure "Could not check out branch: $branch"
 git branch --set-upstream-to="origin/$branch" "$branch" || failure "Could not set upstream branch: origin/$branch"

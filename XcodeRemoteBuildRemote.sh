@@ -221,9 +221,21 @@ if ! git reset --hard; then
 elif ! git clean -ffdx; then
   main_status=1
   main_failure="Could not clean remote repository before checkout"
-elif ! git checkout "$branch"; then
+# The leading + accepts rewritten history, so rebased or force-pushed branches
+# still fetch. `checkout -B` then moves the local branch to the fetched commit;
+# a plain checkout would keep building whatever the last fetch left behind.
+elif ! git fetch origin "+refs/heads/$branch:refs/remotes/origin/$branch"; then
+  main_status=1
+  main_failure="Could not fetch branch from origin: $branch"
+elif ! git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+  main_status=1
+  main_failure="Could not find remote branch: origin/$branch"
+elif ! git checkout -B "$branch" "origin/$branch"; then
   main_status=1
   main_failure="Could not check out branch: $branch"
+elif ! git branch --set-upstream-to="origin/$branch" "$branch"; then
+  main_status=1
+  main_failure="Could not set upstream branch: origin/$branch"
 elif ! command -v pod >/dev/null 2>&1; then
   main_status=1
   main_failure="Could not find CocoaPods (pod)"

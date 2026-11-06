@@ -174,7 +174,7 @@ trap cleanup_repo EXIT
 trap 'exit 130' HUP INT TERM
 
 printf '=== Checking out branch: %s ===\n' "$branch"
-git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch" || failure "Could not fetch branch from origin: $branch"
+git fetch origin "+refs/heads/$branch:refs/remotes/origin/$branch" || failure "Could not fetch branch from origin: $branch"
 git checkout -B "$branch" "origin/$branch" || failure "Could not check out branch: $branch"
 cd "$project_path" || failure "Could not enter Android project: $project_path"
 [[ -x ./gradlew ]] || failure "Could not find executable Gradle wrapper: $project_path/gradlew"

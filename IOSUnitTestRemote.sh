@@ -163,7 +163,7 @@ elif ! git clean -ffdx; then
 fi
 
 printf '=== Checking out branch: %s ===\n' "$branch"
-if ! git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch"; then
+if ! git fetch origin "+refs/heads/$branch:refs/remotes/origin/$branch"; then
   failure "Could not fetch branch from origin: $branch"
 elif ! git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
   failure "Could not find remote branch: origin/$branch"
