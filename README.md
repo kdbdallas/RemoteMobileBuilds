@@ -121,9 +121,8 @@ Android unit tests:
 ### Android builds (`AndroidRemoteBuildRemote.sh`)
 
 - Builds the Gradle project in `<repo>/$RMB_ANDROID_PROJECT_DIR`.
-- Preserves the ignored `local.properties` file across both cleans so machine-local
-  settings such as `KEYSTORE_DIR` remain available for this build and later runs.
-  If the restore fails, the run prints where the backup copy is.
+- Preserves the ignored `local.properties` file across both cleans so machine-local settings such as `KEYSTORE_DIR` remain available for this build and later runs. The copy is kept in `~/.remote-mobile-builds/<type>/<repo>/`, readable only by your user, and is deleted once restored. If a run is interrupted or can't restore the file, for example because the branch has no Android project, the next run for that repository restores it automatically.
+- Checks for the Android project after checking out the branch, so a branch without it fails that run but doesn't block later runs.
 - Selects Java 17 or 21. It tries `JAVA_HOME`, then `/usr/libexec/java_home`, then the JBR bundled with Android Studio, then Homebrew, jenv, and SDKMAN installs.
 - Finds the Android SDK through `ANDROID_HOME`, then `ANDROID_SDK_ROOT`, then `~/Library/Android/sdk`.
 - Runs `assemble<shortCode><buildType>` for APKs or `bundle<shortCode><buildType>` for AABs. `BrowserStack` builds run `assemble<shortCode>Debug -Pbrowserstack=true` and always produce an APK, whatever `--buildPackage` says. Play Store builds run `bundle<shortCode>Release`.

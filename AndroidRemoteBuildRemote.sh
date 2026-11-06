@@ -137,20 +137,24 @@ repo_path="$HOME/Code"
 repo_path="$repo_path/$repo"
 project_path="$repo_path/$RMB_ANDROID_PROJECT_DIR"
 [[ -d "$repo_path" ]] || failure "Could not find repository: $repo_path"
-[[ -d "$project_path" ]] || failure "Could not find Android project: $project_path"
+# The project is checked after checkout, not here: it belongs to the requested
+# branch, and whatever an earlier run left behind must not block this one.
 
 # local.properties is deliberately ignored and holds machine-local paths such
-# as KEYSTORE_DIR. Preserve it outside the checkout so the required cleans can
-# still remove every generated build artifact without losing configuration for
-# this run or the next one.
+# as KEYSTORE_DIR. Keep a copy outside the checkout so the required cleans can
+# still remove every generated build artifact. The copy is deleted once it has
+# been restored, so finding one here with no local.properties means an earlier
+# run was interrupted or could not restore it, and this run finishes that job.
 local_properties_path="$project_path/local.properties"
-local_properties_backup=""
+local_properties_backup="$HOME/.remote-mobile-builds/${account_type:+$account_type/}$repo/local.properties"
+(umask 077 && mkdir -p "$(dirname "$local_properties_backup")") || failure "Could not create the local.properties backup folder"
 if [[ -f "$local_properties_path" ]]; then
-  local_properties_backup="$(mktemp -t remote-mobile-local-properties)" || failure "Could not back up local.properties"
-  cp "$local_properties_path" "$local_properties_backup" || failure "Could not back up local.properties"
+  (umask 077 && cp "$local_properties_path" "$local_properties_backup") || failure "Could not back up local.properties"
+elif [[ -f "$local_properties_backup" ]]; then
+  printf '=== Recovering local.properties saved by an earlier run ===\n'
 fi
 restore_local_properties() {
-  [[ -z "$local_properties_backup" ]] || cp "$local_properties_backup" "$local_properties_path"
+  [[ ! -f "$local_properties_backup" ]] || cp "$local_properties_backup" "$local_properties_path"
 }
 
 cd "$repo_path" || failure "Could not enter repository: $repo_path"
@@ -173,12 +177,12 @@ cleanup_repo() {
   # the current directory, so name the repository root explicitly.
   git -C "$repo_path" reset --hard || cleanup_status=1
   git -C "$repo_path" clean -ffdx || cleanup_status=1
-  if [[ -n "$local_properties_backup" ]]; then
+  if [[ -f "$local_properties_backup" ]]; then
     if restore_local_properties; then
       rm -f "$local_properties_backup"
     else
       cleanup_status=1
-      printf 'Could not restore local.properties; a copy remains at %s\n' "$local_properties_backup" >&2
+      printf 'Could not restore local.properties; the copy at %s stays there and the next run will restore it\n' "$local_properties_backup" >&2
     fi
   fi
 }
