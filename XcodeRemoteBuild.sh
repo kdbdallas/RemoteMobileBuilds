@@ -229,6 +229,17 @@ if [[ -n "$android_play_service_account_json" ]]; then
 fi
 
 # The runner is sent through stdin, so it need not be preinstalled on the host.
+# Bash normally reads a streamed script as it runs, so any child that reads
+# stdin (ssh, Gradle, pod) would swallow the rest of the runner, and the run
+# would then end with status 0 and no result. Sending it as one block makes
+# Bash parse all of it first and gives every child an empty stdin. Do not use
+# `exec </dev/null` inside a runner instead: it ends a streamed script at once.
+stream_runner() {
+  printf '{\n'
+  cat "$remote_runner"
+  printf '\n} </dev/null\n'
+}
+
 remote_arguments=( --repo "$repo" )
 [[ -z "$account_type" ]] || remote_arguments+=( --type "$account_type" )
 remote_arguments+=( --branch "$branch" )
@@ -265,7 +276,7 @@ if [[ -n "${XCODE_REMOTE_KEYCHAIN_PASSWORD:-}" ]]; then
     printf -v escaped_argument '%q' "$remote_argument"
     remote_command+=" $escaped_argument"
   done
-  { printf '%s\n' "$XCODE_REMOTE_KEYCHAIN_PASSWORD"; printf '%s' "$remote_preamble"; cat "$remote_runner"; } | ssh "$host" "$remote_command"
+  { printf '%s\n' "$XCODE_REMOTE_KEYCHAIN_PASSWORD"; printf '%s' "$remote_preamble"; stream_runner; } | ssh "$host" "$remote_command"
 else
   # ssh joins command arguments into text for the remote login shell. Quote
   # each argument before that handoff so branch names such as
@@ -275,7 +286,7 @@ else
     printf -v escaped_argument '%q' "$remote_argument"
     remote_command+=" $escaped_argument"
   done
-  { printf '%s' "$remote_preamble"; cat "$remote_runner"; } | ssh "$host" "$remote_command"
+  { printf '%s' "$remote_preamble"; stream_runner; } | ssh "$host" "$remote_command"
 fi
 ssh_status=$?
 

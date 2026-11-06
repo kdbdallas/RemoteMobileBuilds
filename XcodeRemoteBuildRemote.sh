@@ -129,6 +129,9 @@ fastlane_log=""
 fastlane_failure_summary=""
 cleanup_repo() {
   [[ $cleanup_done -eq 0 ]] || return
+  # A signal here would otherwise exit partway through, and the EXIT trap could
+  # not finish the job because cleanup_done is already set.
+  trap '' HUP INT TERM
   cleanup_done=1
   printf '\n=== Resetting remote repository ===\n'
   git reset --hard || cleanup_status=1
@@ -295,7 +298,11 @@ else
       # user-provided text as shell code.
       if [[ $main_status -eq 0 && -n "$features" ]]; then
         read -r -a feature_arguments <<< "$features"
-        fastlane_command+=( "${feature_arguments[@]}" )
+        # A blank value gives an empty array, and expanding one is an error
+        # under `set -u` in the Bash 3.2 that ships with macOS.
+        if [[ ${#feature_arguments[@]} -gt 0 ]]; then
+          fastlane_command+=( "${feature_arguments[@]}" )
+        fi
       fi
       if [[ $main_status -eq 0 ]]; then
         fastlane_command+=( --verbose )

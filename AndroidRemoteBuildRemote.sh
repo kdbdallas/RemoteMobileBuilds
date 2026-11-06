@@ -164,10 +164,15 @@ cleanup_done=0
 cleanup_status=0
 cleanup_repo() {
   [[ $cleanup_done -eq 0 ]] || return
+  # A signal here would otherwise exit partway through, and the EXIT trap could
+  # not finish the job because cleanup_done is already set.
+  trap '' HUP INT TERM
   cleanup_done=1
   printf '\n=== Resetting remote repository ===\n'
-  git reset --hard || cleanup_status=1
-  git clean -ffdx || cleanup_status=1
+  # The run usually ends inside the Android project, and `git clean` covers only
+  # the current directory, so name the repository root explicitly.
+  git -C "$repo_path" reset --hard || cleanup_status=1
+  git -C "$repo_path" clean -ffdx || cleanup_status=1
   if [[ -n "$local_properties_backup" ]]; then
     if restore_local_properties; then
       rm -f "$local_properties_backup"
@@ -216,8 +221,10 @@ if [[ "$build_type" == "BrowserStack" ]]; then
   # Preserve either explicit selection in the Gradle invocation.
   gradle_command+=( "-PAPI_DEV_ENABLED=${dev_apis:-false}" )
 fi
-if [[ -n "$features" ]]; then
-  read -r -a feature_arguments <<< "$features"
+# A blank value gives an empty array, and expanding one is an error under
+# `set -u` in the Bash 3.2 that ships with macOS.
+read -r -a feature_arguments <<< "$features"
+if [[ ${#feature_arguments[@]} -gt 0 ]]; then
   for feature_argument in "${feature_arguments[@]}"; do
     [[ "$feature_argument" != -P* ]] || failure "Other Feature Flags should not include -P"
     gradle_command+=( "-P$feature_argument" )

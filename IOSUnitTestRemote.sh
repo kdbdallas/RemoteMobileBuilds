@@ -124,6 +124,9 @@ cleanup_status=0
 test_failure_summary=""
 cleanup_repo() {
   [[ $cleanup_done -eq 0 ]] || return
+  # A signal here would otherwise exit partway through, and the EXIT trap could
+  # not finish the job because cleanup_done is already set.
+  trap '' HUP INT TERM
   cleanup_done=1
   printf '\n=== Resetting remote repository ===\n'
   # Fallback for test tools that finish the test process but interrupt the

@@ -2,7 +2,7 @@
 
 Scripts and a macOS Shortcut for building or testing a mobile app (iOS and Android) on a remote Mac. You pick the platform, branch, and options in a few dialogs. The work then runs over SSH on a build Mac, and you get a success or failure alert when it finishes.
 
-The build machine needs no installed copy of these scripts. The local entry point streams the platform-specific runner to the remote host over SSH standard input and runs it there with `bash -s`.
+The build machine needs no installed copy of these scripts. The local entry point streams the platform-specific runner to the remote host over SSH standard input and runs it there with `bash -s`. The runner is sent as a single block with its standard input redirected from `/dev/null`, so a command that reads standard input can't consume the rest of the script.
 
 ## How it works
 

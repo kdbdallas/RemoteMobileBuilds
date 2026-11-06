@@ -141,10 +141,15 @@ test_log=""
 test_failure_summary=""
 cleanup_repo() {
   [[ $cleanup_done -eq 0 ]] || return
+  # A signal here would otherwise exit partway through, and the EXIT trap could
+  # not finish the job because cleanup_done is already set.
+  trap '' HUP INT TERM
   cleanup_done=1
   printf '\n=== Resetting remote repository ===\n'
-  git reset --hard || cleanup_status=1
-  git clean -ffdx || cleanup_status=1
+  # The run usually ends inside the Android project, and `git clean` covers only
+  # the current directory, so name the repository root explicitly.
+  git -C "$repo_path" reset --hard || cleanup_status=1
+  git -C "$repo_path" clean -ffdx || cleanup_status=1
   if [[ -n "$local_properties_backup" ]]; then
     if restore_local_properties; then
       rm -f "$local_properties_backup"
