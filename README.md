@@ -16,6 +16,8 @@ Shortcut (Run Shell Script)
             └─ AndroidUnitTestRemote.sh    Android unit tests
 ```
 
+The Android runners share `AndroidCommon.sh`, which is streamed ahead of them. Run them through `XcodeRemoteBuild.sh`, not directly.
+
 Each remote runner:
 
 1. Resolves the repository at `~/Code/<type>/<repo>`, or `~/Code/<repo>` when `--type` is omitted.
@@ -39,6 +41,7 @@ If the result was delivered but the final reset failed, the runner prints a `WAR
 | `IOSUnitTestRemote.sh` | Remote Mac | iOS unit tests through `fastlane ios test`. Copies the HTML reports to the build folder. |
 | `AndroidRemoteBuildRemote.sh` | Remote Mac | Android build with the Gradle wrapper. Produces an APK or AAB. |
 | `AndroidUnitTestRemote.sh` | Remote Mac | Android unit tests with the Gradle wrapper. Copies the HTML reports to the build folder. |
+| `AndroidCommon.sh` | Remote Mac | Code shared by the Android runners: Java and SDK lookup, `local.properties` handling, checkout, and cleanup. |
 | `Shortcut/Type-RunShellScript.sh` | Local Mac | Script body for the Shortcut's **Run Shell Script** action. Collects options through dialogs and shows the result. |
 | `config.example.sh` | Local Mac | Template for `config.sh`, which holds your machine-specific settings. See [Configuration](#configuration). |
 
@@ -136,7 +139,7 @@ Android unit tests:
 ### Android unit tests (`AndroidUnitTestRemote.sh`)
 
 - Runs `./gradlew test<shortCode>DebugUnitTest` in `<repo>/$RMB_ANDROID_PROJECT_DIR`.
-- Finds Java and the Android SDK the same way as Android builds, except that it doesn't look for jenv or SDKMAN installs.
+- Finds Java and the Android SDK the same way as Android builds.
 - Copies `app/build/reports/tests/test<shortCode>DebugUnitTest` to `RMB_BUILDS_DIR/Android/<timestamp>/<branch>/`. It then checks that the number of HTML files matches and that `index.html` isn't empty.
 - If tests fail but a report exists, the report is delivered and the run still ends with `SUCCESS: Tests Ran`. The test failures are recorded in the report.
 - If there's no report, the run fails and prints a short failure summary after cleanup.
@@ -178,7 +181,7 @@ Then edit the values:
 | iOS unit tests | `RMB_BUILDS_HOST`, `RMB_BUILDS_DIR`, `RMB_FASTLANE_SELECTOR`, `RMB_GDRIVE_EMAIL` |
 | Android build or unit tests | `RMB_BUILDS_HOST`, `RMB_BUILDS_DIR`, `RMB_ANDROID_PROJECT_DIR` |
 
-It adds `export` lines for those settings to the start of the script it streams over SSH, and exports the Play service-account key path as `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` when configured. Play Store builds stop with an error if that path is empty. The remote runners also check the settings they need when run directly.
+It adds `export` lines for those settings to the start of the script it streams over SSH, and exports the Play service-account key path as `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` when configured. Play Store builds stop with an error if that path is empty. The remote runners also check that those settings are present.
 
 ## Setup
 

@@ -16,6 +16,7 @@ ios_remote_runner="$script_dir/XcodeRemoteBuildRemote.sh"
 android_remote_runner="$script_dir/AndroidRemoteBuildRemote.sh"
 ios_test_remote_runner="$script_dir/IOSUnitTestRemote.sh"
 android_test_remote_runner="$script_dir/AndroidUnitTestRemote.sh"
+android_common="$script_dir/AndroidCommon.sh"
 config_file="$script_dir/config.sh"
 
 usage() {
@@ -169,13 +170,13 @@ if [[ $unit_tests -eq 1 ]]; then
   case "$platform" in
     ios)
       [[ -z "$devices" || "$devices" == "Latest" || "$devices" == "All" ]] || fail "--devices must be Latest or All"
-      remote_runner="$ios_test_remote_runner"
+      remote_files=( "$ios_test_remote_runner" )
       required_settings=( RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL )
       ;;
     android)
       [[ -z "$devices" ]] || fail "--devices is only available for iOS unit tests"
       [[ -n "$short_code" ]] || fail "--shortCode is required for Android unit tests"
-      remote_runner="$android_test_remote_runner"
+      remote_files=( "$android_common" "$android_test_remote_runner" )
       required_settings=( RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_ANDROID_PROJECT_DIR )
       ;;
     *) fail "--platform must be ios or android" ;;
@@ -185,7 +186,7 @@ else
   case "$platform" in
     ios)
       [[ -n "$lane" ]] || fail "--lane is required"
-      remote_runner="$ios_remote_runner"
+      remote_files=( "$ios_remote_runner" )
       required_settings=( RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL RMB_IOS_IPA_DIR )
       ;;
     android)
@@ -196,13 +197,15 @@ else
         [[ "$bundle_id" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ ]] || fail "--bundleId must be a valid Android application ID"
       fi
       [[ -z "$dev_apis" || "$dev_apis" == "true" || "$dev_apis" == "false" ]] || fail "--devApis must be true or false"
-      remote_runner="$android_remote_runner"
+      remote_files=( "$android_common" "$android_remote_runner" )
       required_settings=( RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_ANDROID_PROJECT_DIR )
       ;;
     *) fail "--platform must be ios or android" ;;
   esac
 fi
-[[ -f "$remote_runner" ]] || fail "Could not find remote runner: $remote_runner"
+for remote_file in "${remote_files[@]}"; do
+  [[ -f "$remote_file" ]] || fail "Could not find remote runner: $remote_file"
+done
 
 [[ -f "$config_file" ]] || fail "Could not find $config_file (copy config.example.sh to config.sh and fill it in)"
 # shellcheck source=config.example.sh
@@ -236,8 +239,11 @@ fi
 # `exec </dev/null` inside a runner instead: it ends a streamed script at once.
 stream_runner() {
   printf '{\n'
-  cat "$remote_runner"
-  printf '\n} </dev/null\n'
+  for remote_file in "${remote_files[@]}"; do
+    cat "$remote_file"
+    printf '\n'
+  done
+  printf '} </dev/null\n'
 }
 
 remote_arguments=( --repo "$repo" )
