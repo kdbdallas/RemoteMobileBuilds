@@ -70,8 +70,13 @@ end run
 APPLESCRIPT
 ) || exit 0
   [[ "$shortCode" == "Cancel" ]] && exit 0
-  features=$(osascript -e 'text returned of (display dialog "Feature Flags (optional; e.g. featureFlags:BROWSERSTACK apiDev:true)" default answer "" buttons {"Cancel", "Continue"} default button "Continue")') || exit 0
+  devApis="false"
+  if [[ "$lane" == "createAppForBrowserStack" ]]; then
+    devApis=$(osascript -e 'button returned of (display dialog "Dev APIs Enabled" buttons {"true", "false"} default button "false")') || exit 0
+  fi
+  features=$(osascript -e 'text returned of (display dialog "Feature Flags (optional; e.g. featureFlags:BROWSERSTACK)" default answer "" buttons {"Cancel", "Continue"} default button "Continue")') || exit 0
   [[ "$features" == "Cancel" ]] && exit 0
+  [[ "$devApis" == "true" ]] && features="${features:+$features }apiDev:true"
 
   XCODE_REMOTE_KEYCHAIN_PASSWORD=$(security find-generic-password -a "$USER" -s XcodeRemoteBuildKeychain -w 2>/dev/null) || {
     osascript -e 'display alert "Failure" message "Could not read the remote Keychain password from the local Keychain (service: XcodeRemoteBuildKeychain)." as critical'
@@ -127,7 +132,7 @@ APPLESCRIPT
 ) || exit 0
     [[ "$bundleID" == "Cancel" ]] && exit 0
   fi
-  features=$(osascript -e 'text returned of (display dialog "Other Feature Flags (optional; space-separated, without -P)" default answer "" buttons {"Cancel", "Continue"} default button "Continue")') || exit 0
+  features=$(osascript -e 'text returned of (display dialog "Other Feature Flags (optional; space-separated, without -P, e.g. browserstack=true)" default answer "" buttons {"Cancel", "Continue"} default button "Continue")') || exit 0
   [[ "$features" == "Cancel" ]] && exit 0
 
   buildCommand=(

@@ -202,7 +202,7 @@ fi
 [[ -f "$config_file" ]] || fail "Could not find $config_file (copy config.example.sh to config.sh and fill it in)"
 # shellcheck source=config.example.sh
 source "$config_file" || fail "Could not load $config_file"
-for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL RMB_IOS_IPA_DIR RMB_ANDROID_PROJECT_DIR RMB_ANDROID_BROWSERSTACK_FLAVOR; do
+for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL RMB_IOS_IPA_DIR RMB_ANDROID_PROJECT_DIR; do
   [[ -n "${!config_name:-}" ]] || fail "$config_name is not set in $config_file"
   [[ "${!config_name}" != *$'\n'* ]] || fail "$config_name must not contain a newline"
 done
@@ -214,7 +214,7 @@ fi
 # Prepend the settings the remote runners need to the streamed script, so
 # nothing machine-specific is stored in the runners themselves.
 remote_preamble=""
-for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL RMB_IOS_IPA_DIR RMB_ANDROID_PROJECT_DIR RMB_ANDROID_BROWSERSTACK_FLAVOR; do
+for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_FASTLANE_SELECTOR RMB_GDRIVE_EMAIL RMB_IOS_IPA_DIR RMB_ANDROID_PROJECT_DIR; do
   printf -v config_line 'export %s=%q\n' "$config_name" "${!config_name}"
   remote_preamble+="$config_line"
 done

@@ -315,6 +315,7 @@ else
           # Keep only concrete Xcode/build errors. Broad matches such as
           # "fastlane finished with errors" and Fastlane's release notes hide
           # the useful failure in Shortcuts' small alert.
+          failed_fastlane_action="$(grep -E '💥' "$fastlane_log" | tail -n 1 || true)"
           # Fastlane often reports its actual provisioning or signing problem
           # as a [!] line; omit only its generic build-failure wrapper.
           fastlane_failure_summary="$(grep -E '\[!\]' "$fastlane_log" | grep -Evi 'error building (the )?application|fastlane finished with errors' | tail -n 6 || true)"
@@ -324,6 +325,10 @@ else
             # In that case the final lines immediately before Fastlane's
             # failure marker are the best available context.
             fastlane_failure_summary="$(sed -n '1,/fastlane finished with errors/p' "$fastlane_log" | tail -n 10)"
+          fi
+          if [[ -n "$failed_fastlane_action" ]]; then
+            fastlane_failure_summary="Fastlane failed action: $failed_fastlane_action
+$fastlane_failure_summary"
           fi
         fi
         cat "$fastlane_log"

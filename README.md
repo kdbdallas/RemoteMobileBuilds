@@ -110,7 +110,7 @@ Android release bundle:
 - Preserves the ignored `local.properties` file across cleanup so machine-local
   settings such as `KEYSTORE_DIR` remain available for later builds.
 - Selects Java 17 or 21. It tries `JAVA_HOME`, then `/usr/libexec/java_home`, then the JBR bundled with Android Studio, then Homebrew, jenv, and SDKMAN installs.
-- Runs `assemble<shortCode><buildType>` for APKs or `bundle<shortCode><buildType>` for AABs. `BrowserStack` builds run `assemble<RMB_ANDROID_BROWSERSTACK_FLAVOR>Debug -Pbrowserstack=true`. Play Store builds run `bundle<shortCode>Release`.
+- Runs `assemble<shortCode><buildType>` for APKs or `bundle<shortCode><buildType>` for AABs. `BrowserStack` builds run `assemble<shortCode>Debug -Pbrowserstack=true`. Play Store builds run `bundle<shortCode>Release`.
 - Picks the newest matching artifact under `app/build/outputs` and renames it to `<ticket>-<shortCode>.<apk|aab>`.
 - Uploads `BrowserStack` builds to BrowserStack, publishes Play Store bundles with `tools/play_release.py`, and copies other builds to the build folder. The Shortcut alert includes the publisher result.
 - Play Store builds require `tools/play_release.py` on the selected Android-app branch and a service-account key path configured through `RMB_ANDROID_PLAY_SERVICE_ACCOUNT_JSON`; the key itself remains on the Android build Mac.
@@ -137,7 +137,6 @@ Then edit the values:
 | `RMB_GDRIVE_EMAIL` | iOS runners | Google Drive account passed to that function. |
 | `RMB_IOS_IPA_DIR` | iOS build runner | Folder inside the iOS repository where the BrowserStack lane writes its IPA. |
 | `RMB_ANDROID_PROJECT_DIR` | Android runners | Folder inside the Android repository that contains the Gradle project. |
-| `RMB_ANDROID_BROWSERSTACK_FLAVOR` | Android build runner | Product flavor built by BrowserStack builds (`assemble<flavor>Debug`). |
 | `RMB_ANDROID_PLAY_SERVICE_ACCOUNT_JSON` | Android Play Store builds | Absolute path on the Android build Mac to the Play Developer API service-account JSON key. |
 | `RMB_IOS_HOST`, `RMB_ANDROID_HOST` | Shortcut | SSH hosts that run iOS and Android jobs. |
 | `RMB_REPO_TYPE` | Shortcut | Subdirectory under `~/Code` on the build Macs. Leave it empty if there is none. |

@@ -21,7 +21,7 @@ failure() {
 }
 
 # XcodeRemoteBuild.sh exports these from config.sh ahead of this script.
-for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_ANDROID_PROJECT_DIR RMB_ANDROID_BROWSERSTACK_FLAVOR; do
+for config_name in RMB_BUILDS_HOST RMB_BUILDS_DIR RMB_ANDROID_PROJECT_DIR; do
   [[ -n "${!config_name:-}" ]] || failure "$config_name is not set; run this through XcodeRemoteBuild.sh with config.sh filled in"
 done
 
@@ -184,7 +184,9 @@ configure_android_sdk || failure "Could not find the Android SDK on the remote M
 printf '=== Using Android SDK: %s ===\n' "$ANDROID_HOME"
 
 if [[ "$build_type" == "BrowserStack" ]]; then
-  gradle_command=( ./gradlew "assemble${RMB_ANDROID_BROWSERSTACK_FLAVOR}Debug" -Pbrowserstack=true )
+  # BrowserStack must build the flavor requested in the Shortcut, not the
+  # configured default flavor (which is commonly CONTAINER).
+  gradle_command=( ./gradlew "assemble${short_code}Debug" -Pbrowserstack=true )
   artifact_extension="apk"
 elif [[ "$build_type" == "Play Store" ]]; then
   gradle_command=( "./gradlew" "bundle${short_code}Release" )
@@ -245,7 +247,7 @@ while IFS= read -r candidate; do
   [[ "$(basename "$candidate")" != *"-$short_code.$artifact_extension" ]] || continue
   # Gradle variants normally include the short code in their output path. This
   # also avoids selecting a build from a different flavor.
-  [[ "$candidate" == *"$short_code"* || "$build_type" == "BrowserStack" ]] || continue
+  [[ "$candidate" == *"$short_code"* ]] || continue
   candidate_mtime="$(stat -f %m "$candidate" 2>/dev/null || true)"
   [[ "$candidate_mtime" =~ ^[0-9]+$ ]] || continue
   if (( candidate_mtime > artifact_mtime )); then
@@ -256,10 +258,9 @@ done < <(find app/build/outputs -type f -name "*.${artifact_extension}" -print 2
 [[ -n "$artifact_path" ]] || failure "Could not find a ${short_code} .${artifact_extension} build artifact"
 printf '=== Using build artifact: %s ===\n' "$artifact_path"
 
+ticket="${branch##*/}"
 if [[ "$branch" =~ (CM-[0-9]+) ]]; then
   ticket="${BASH_REMATCH[1]}"
-else
-  ticket="${branch//\//-}"
 fi
 renamed_artifact_path="$(dirname "$artifact_path")/$ticket-$short_code.$artifact_extension"
 if [[ "$artifact_path" != "$renamed_artifact_path" ]]; then
